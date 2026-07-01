@@ -49,7 +49,3 @@ Generate an auth secret with `openssl rand -base64 33`.
 | `pnpm db:migrate` | Create and apply a migration (dev) |
 | `pnpm db:deploy` | Apply migrations (production) |
 | `pnpm db:studio` | Open Prisma Studio |
-
-## Learning guide
-
-`learn.html` is a deep, from-scratch walkthrough of the entire codebase, phase by phase - open it in a browser.
