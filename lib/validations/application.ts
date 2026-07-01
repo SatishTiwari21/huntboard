@@ -1,25 +1,22 @@
 import { z } from "zod";
 
-const email = z
-  .email("Enter a valid email")
-  .transform((value) => value.toLowerCase().trim());
+import { APPLICATION_STATUSES } from "@/lib/constants/application";
 
-// bcrypt only considers the first 72 bytes of a password.
-const password = z
-  .string()
-  .min(8, "Password must be at least 8 characters")
-  .max(72, "Password must be at most 72 characters");
+const emptyToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
 
-export const loginSchema = z.object({
-  email,
-  password,
+const optionalText = (max: number) =>
+  z.preprocess(emptyToUndefined, z.string().trim().max(max).optional());
+
+export const applicationSchema = z.object({
+  company: z.string().trim().min(1, "Company is required").max(200),
+  role: z.string().trim().min(1, "Role is required").max(200),
+  status: z.enum(APPLICATION_STATUSES).default("WISHLIST"),
+  jobUrl: z.preprocess(emptyToUndefined, z.url("Enter a valid URL").optional()),
+  location: optionalText(200),
+  salaryRange: optionalText(100),
+  source: optionalText(100),
+  appliedAt: z.preprocess(emptyToUndefined, z.coerce.date().optional()),
 });
 
-export const signupSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100),
-  email,
-  password,
-});
-
-export type LoginInput = z.infer<typeof loginSchema>;
-export type SignupInput = z.infer<typeof signupSchema>;
+export type ApplicationInput = z.infer<typeof applicationSchema>;
