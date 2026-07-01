@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Huntboard - Deep Dive (Phases 1 and 2)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #11161d;
+    --panel: #161b22;
+    --panel2: #1b212b;
+    --border: #232a34;
+    --border2: #2d3744;
+    --text: #e6edf3;
+    --muted: #9aa6b2;
+    --faint: #6b7686;
+    --accent: #5aa2ff;
+    --accent2: #7ee787;
+    --amber: #e3b341;
+    --pink: #ff7b9c;
+    --code: #c9d4e0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15.5px;
+  }
+  .layout { display: grid; grid-template-columns: 280px 1fr; max-width: 1320px; margin: 0 auto; }
+
+  /* sidebar */
+  aside {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    border-right: 1px solid var(--border); padding: 24px 18px; background: var(--bg2);
+  }
+  aside .brand { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
+  aside .brand span { color: var(--accent); }
+  aside .tag { font-size: 12px; color: var(--faint); margin-bottom: 18px; }
+  aside nav a {
+    display: block; color: var(--muted); text-decoration: none; font-size: 13.5px;
+    padding: 5px 10px; border-radius: 6px; border-left: 2px solid transparent;
+  }
+  aside nav a:hover { color: var(--text); background: var(--panel); }
+  aside nav a.active { color: var(--text); background: var(--panel); border-left-color: var(--accent); }
+  aside nav a.sub { padding-left: 22px; font-size: 12.5px; color: var(--faint); }
+  aside .grp { margin-top: 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--faint); padding: 0 10px 4px; }
+
+  /* main */
+  main { padding: 40px 56px 120px; min-width: 0; }
+  section { margin-bottom: 56px; scroll-margin-top: 20px; }
+  h1 { font-size: 32px; letter-spacing: -0.02em; margin-bottom: 10px; }
+  h1 + .lead { color: var(--muted); font-size: 17px; margin-bottom: 8px; max-width: 760px; }
+  h2 { font-size: 23px; letter-spacing: -0.01em; margin: 8px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 17.5px; margin: 26px 0 10px; color: #f0f6fc; }
+  h4 { font-size: 14px; margin: 18px 0 8px; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.05em; }
+  p { margin-bottom: 12px; color: #d6dee8; }
+  ul, ol { margin: 0 0 14px 22px; }
+  li { margin-bottom: 6px; color: #d6dee8; }
+  strong { color: #fff; }
+  a.inline { color: var(--accent); }
+  code.k {
+    font-family: var(--mono); font-size: 0.86em; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; color: #e8c499;
+    white-space: nowrap;
+  }
+  .filepath { font-family: var(--mono); font-size: 0.85em; color: var(--accent2); }
+
+  /* code blocks */
+  pre {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; margin: 12px 0 16px; font-size: 13px; line-height: 1.6;
+  }
+  pre code { font-family: var(--mono); color: var(--code); white-space: pre; }
+  .codecap {
+    font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+    margin: 16px 0 -6px; display: flex; align-items: center; gap: 8px;
+  }
+  .codecap::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+  .cm { color: #5e6b7a; font-style: italic; }
+  .kw { color: #ff7b9c; }
+  .st { color: #9ecbff; }
+  .fn { color: #d2a8ff; }
+  .nm { color: #79c0ff; }
+
+  /* callouts */
+  .box { border-radius: 10px; padding: 14px 16px 14px 44px; margin: 16px 0; position: relative; font-size: 14.5px; border: 1px solid; }
+  .box::before { position: absolute; left: 14px; top: 13px; font-size: 16px; }
+  .box p:last-child { margin-bottom: 0; }
+  .why    { background: rgba(90,162,255,.07);  border-color: rgba(90,162,255,.3); }
+  .why::before    { content: "?"; color: var(--accent); font-weight: 800; }
+  .gotcha { background: rgba(227,179,65,.07);  border-color: rgba(227,179,65,.32); }
+  .gotcha::before { content: "!"; color: var(--amber); font-weight: 800; }
+  .interview { background: rgba(126,231,135,.06); border-color: rgba(126,231,135,.3); }
+  .interview::before { content: "\2691"; color: var(--accent2); }
+  .box .lbl { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
+  .why .lbl { color: var(--accent); }
+  .gotcha .lbl { color: var(--amber); }
+  .interview .lbl { color: var(--accent2); }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 18px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td code { font-family: var(--mono); font-size: 0.86em; color: #e8c499; }
+
+  .flow { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin: 16px 0; }
+  .flow pre { background: transparent; border: none; padding: 0; font-size: 12.5px; color: var(--muted); }
+
+  .pill { display: inline-block; font-size: 11px; font-family: var(--mono); padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border2); color: var(--muted); margin-right: 4px; }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 28px 20px 80px; } .twocol { grid-template-columns: 1fr; } }
+
+  .toplink { color: var(--faint); font-size: 12px; text-decoration: none; float: right; }
+  .toplink:hover { color: var(--accent); }
+  details { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px 16px; margin: 12px 0; }
+  details summary { cursor: pointer; padding: 10px 0; font-weight: 600; color: #f0f6fc; }
+  details[open] summary { border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .q { color: var(--accent2); font-weight: 600; }
+  hr.soft { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+  .num { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #03101f; font-weight: 800; font-size: 12px; align-items: center; justify-content: center; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside>
+  <div class="brand">Hunt<span>board</span></div>
+  <div class="tag">Deep dive - Phases 1 and 2</div>
+  <nav id="toc">
+    <div class="grp">Orientation</div>
+    <a href="#use">How to use this</a>
+    <a href="#bigpicture">1. The big picture</a>
+    <a href="#stack">2. The stack and why</a>
+    <a href="#lifecycle">3. App Router mental model</a>
+    <a href="#structure">4. Project structure</a>
+
+    <div class="grp">Tooling and config</div>
+    <a href="#pnpm">5. pnpm and packages</a>
+    <a href="#ts">6. TypeScript config</a>
+    <a href="#env">7. Env, secrets, Neon</a>
+
+    <div class="grp">Database</div>
+    <a href="#prisma">8. Prisma and the adapter</a>
+    <a href="#singleton">9. The client singleton</a>
+    <a href="#migrations">10. Migrations</a>
+    <a href="#datamodel">11. The data model</a>
+
+    <div class="grp">Authentication</div>
+    <a href="#authconcepts">12. Auth concepts</a>
+    <a href="#authjs">13. NextAuth v5 wiring</a>
+    <a href="#password">14. Password hashing</a>
+    <a href="#proxy">15. Route protection</a>
+    <a href="#zod">16. Validation (Zod)</a>
+    <a href="#actions">17. Server Actions</a>
+
+    <div class="grp">Putting it together</div>
+    <a href="#flows">18. End-to-end flows</a>
+    <a href="#gotchas">19. Version gotchas</a>
+    <a href="#glossary">20. Glossary</a>
+    <a href="#rebuild">21. Rebuild checklist</a>
+    <a href="#selftest">22. Self-test</a>
+
+    <div class="grp">Phase 3 - CRUD</div>
+    <a href="#crud">23. What CRUD means</a>
+    <a href="#layers">24. Layered architecture</a>
+    <a href="#authz">25. Authorization (the crux)</a>
+    <a href="#mutations">26. Mutations + revalidation</a>
+    <a href="#crudui">27. The CRUD UI</a>
+    <a href="#selftest3">28. Phase 3 self-test</a>
+
+    <div class="grp">Phase 4 - Timeline</div>
+    <a href="#relations">29. The second relationship</a>
+    <a href="#transitive">30. Transitive authorization</a>
+    <a href="#detailpage">31. Detail page + timeline UI</a>
+    <a href="#selftest4">32. Phase 4 self-test</a>
+
+    <div class="grp">Phase 5 - Kanban</div>
+    <a href="#dnd">33. Drag and drop</a>
+    <a href="#serverclient">34. Server-to-client data</a>
+    <a href="#optimistic">35. Optimistic updates</a>
+    <a href="#selftest5">36. Phase 5 self-test</a>
+
+    <div class="grp">Phase 6 - Dashboard</div>
+    <a href="#aggregation">37. Deriving metrics</a>
+    <a href="#metrics">38. The metrics explained</a>
+    <a href="#charts">39. Server computes, client charts</a>
+    <a href="#selftest6">40. Phase 6 self-test</a>
+
+    <div class="grp">Phase 7 - Guest + polish</div>
+    <a href="#guest">41. One-click guest login</a>
+    <a href="#seeding">42. Seeding demo data</a>
+    <a href="#publicroutes">43. Public vs private routes</a>
+    <a href="#selftest7">44. Phase 7 self-test</a>
+
+    <div class="grp">Phase 8 - Deploy</div>
+    <a href="#deploy">45. Deploying to Vercel</a>
+    <a href="#poolvsdirect">46. Pooled vs direct in prod</a>
+    <a href="#selftest8">47. Phase 8 self-test</a>
+  </nav>
+</aside>
+
+<main>
+
+<section id="use">
+  <h1>Huntboard, explained from the metal up</h1>
+  <p class="lead">Everything built in Phase 1 (foundation) and Phase 2 (data model and auth), explained so you can rebuild it yourself and defend every line in an interview.</p>
+  <div class="box why">
+    <span class="lbl">How to read this</span>
+    <p>Each section answers three questions: <strong>what</strong> the thing is, <strong>why</strong> we chose it over alternatives, and <strong>how</strong> the code actually does it. Watch for the three callout types:</p>
+    <p><span class="pill">? Why</span> the reasoning behind a decision &nbsp; <span class="pill">! Gotcha</span> a trap or version-specific surprise &nbsp; <span class="pill">&#9873; Interview</span> a point worth being able to talk about.</p>
+  </div>
+  <p>If you only have five minutes: read section 1 (the big picture), section 11 (the data model), and section 18 (the flows). Those three carry the spine of the app.</p>
+</section>
+
+<section id="bigpicture">
+  <h2>1. The big picture <a href="#use" class="toplink">top</a></h2>
+  <p>Huntboard is a <strong>job-application tracker</strong>. A user signs up, then records job applications, each moving through a pipeline of stages and carrying a timeline of events. Everything a user sees is strictly their own data.</p>
+
+  <p>The whole thing is <strong>one Next.js application</strong> that runs on a server (Node.js) and talks to a <strong>PostgreSQL database</strong> hosted on Neon. There is no separate backend service - in the App Router, your server code (database queries, auth, validation) and your UI live in the same project and are split apart at build time.</p>
+
+  <div class="flow">
+<pre>
+  Browser                Next.js server (Node)              Neon (PostgreSQL)
+  -------                ---------------------              -----------------
+  request  ───────────▶  proxy.ts  (is user logged in?)
+                            │ no ──▶ redirect to /login
+                            │ yes
+                            ▼
+                         Server Component / Server Action
+                            │  uses prisma (lib/prisma.ts)
+                            │  ───────────────────────────────▶  SQL query
+                            │  ◀───────────────────────────────  rows
+                            ▼
+                         HTML / response  ──────────────────▶  Browser renders
+</pre>
+  </div>
+
+  <p>Two phases are done:</p>
+  <ul>
+    <li><strong>Phase 1 - Foundation:</strong> the Next.js app, styling (Tailwind), the database connection through Prisma, and a deployable shell.</li>
+    <li><strong>Phase 2 - Data and auth:</strong> the database tables (User, Application, Event), and a full email/password login system with protected pages.</li>
+  </ul>
+  <div class="box interview">
+    <span class="lbl">Interview framing</span>
+    <p>"It is a full-stack Next.js app with server-rendered pages, a Postgres database accessed through Prisma, and self-hosted credentials auth with JWT sessions. Every query is scoped to the authenticated user." That one sentence signals you understand the whole system.</p>
+  </div>
+</section>
+
+<section id="stack">
+  <h2>2. The stack and why each piece <a href="#use" class="toplink">top</a></h2>
+  <table>
+    <tr><th>Layer</th><th>Choice</th><th>Why this and not the alternative</th></tr>
+    <tr><td>Framework</td><td><code>Next.js 16</code> (App Router)</td><td>One project for UI and server logic. Server Components mean we query the DB directly in a page without building a REST API. Industry standard, strong on a resume.</td></tr>
+    <tr><td>Language</td><td><code>TypeScript</code> (strict)</td><td>Types catch bugs at build time and document intent. Strict mode is what professional teams run.</td></tr>
+    <tr><td>Styling</td><td><code>Tailwind CSS 4</code></td><td>Utility classes keep styling next to markup, no naming bikeshedding, no dead CSS. Fast to build consistent UI.</td></tr>
+    <tr><td>Database</td><td><code>PostgreSQL</code> on <code>Neon</code></td><td>Postgres is the robust relational default. Neon is serverless Postgres with branching, so dev and prod can be isolated cheaply.</td></tr>
+    <tr><td>ORM</td><td><code>Prisma 7</code></td><td>Type-safe database access generated from a schema file that doubles as documentation. The most recognized ORM on resumes.</td></tr>
+    <tr><td>Auth</td><td><code>NextAuth v5</code> (Auth.js)</td><td>Self-hosted, so we own the session and authorization logic (the part interviewers probe). No managed service like Clerk hiding the work.</td></tr>
+    <tr><td>Validation</td><td><code>Zod 4</code></td><td>Validate untrusted input at the server boundary with a schema that also gives us TypeScript types for free.</td></tr>
+    <tr><td>Hashing</td><td><code>bcryptjs</code></td><td>Pure-JS password hashing, so no native binary to break on serverless. Battle-tested algorithm.</td></tr>
+    <tr><td>Package manager</td><td><code>pnpm</code></td><td>Fast, disk-efficient (shared content-addressed store), strict about phantom dependencies.</td></tr>
+  </table>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>For any tool, be ready to name the alternative you rejected and why: Prisma vs Drizzle, NextAuth vs Clerk, bcrypt(native) vs bcryptjs, pnpm vs npm. "I picked X because Y, and the tradeoff was Z" is what seniority sounds like.</p>
+  </div>
+</section>
+
+<section id="lifecycle">
+  <h2>3. The App Router mental model <a href="#use" class="toplink">top</a></h2>
+  <p>This is the single most important concept. Next.js App Router code runs in <strong>two different places</strong>, and knowing which is which explains everything else.</p>
+
+  <h3>Server Components (the default)</h3>
+  <p>Every file in <span class="filepath">app/</span> is a <strong>Server Component</strong> unless it says otherwise. It runs <em>only on the server</em>, never ships to the browser, and can do server things directly: read the database, read secrets, check the session. Our <span class="filepath">app/(app)/board/page.tsx</span> is a server component - notice it calls <code class="k">await auth()</code> right inside the component.</p>
+
+  <h3>Client Components</h3>
+  <p>A file that starts with <code class="k">"use client"</code> is a <strong>Client Component</strong>. It is sent to the browser and can use interactivity: state, effects, event handlers, form hooks. Our <span class="filepath">components/auth/auth-form.tsx</span> is a client component because it uses <code class="k">useActionState</code> and <code class="k">useFormStatus</code>.</p>
+
+  <h3>Server Actions</h3>
+  <p>A function marked <code class="k">"use server"</code> is a <strong>Server Action</strong>: a server function you can call from a form or a client component as if it were local, but it actually runs on the server. This is how our login and signup forms talk to the database without us writing a single API route by hand. (More in section 17.)</p>
+
+  <h3>Proxy (formerly "middleware")</h3>
+  <p>The <span class="filepath">proxy.ts</span> file runs <strong>before</strong> any page, on every matching request. We use it to check the session and redirect logged-out users away from protected pages. (More in section 15.)</p>
+
+  <div class="box gotcha">
+    <span class="lbl">Gotcha</span>
+    <p>In Next.js 16 the file convention was renamed from <code class="k">middleware.ts</code> to <code class="k">proxy.ts</code>, and the exported function must be a real function (default export or named <code class="k">proxy</code>), not a destructured const. We hit this exact error and fixed it.</p>
+  </div>
+</section>
+
+<section id="structure">
+  <h2>4. Project structure <a href="#use" class="toplink">top</a></h2>
+  <p>Every file and folder, and what it is for. Folders in parentheses like <code class="k">(app)</code> are <strong>route groups</strong> - they organize files without adding a URL segment.</p>
+<pre><code>Huntboard/
+├─ app/                         <span class="cm"># routes + UI (App Router)</span>
+│  ├─ layout.tsx                <span class="cm"># root layout (html/body, fonts) - wraps everything</span>
+│  ├─ page.tsx                  <span class="cm"># "/" - redirects to /board</span>
+│  ├─ globals.css               <span class="cm"># Tailwind import + base styles</span>
+│  ├─ (auth)/                   <span class="cm"># route group: public auth pages</span>
+│  │  ├─ layout.tsx             <span class="cm"># centered card layout</span>
+│  │  ├─ login/page.tsx         <span class="cm"># "/login"</span>
+│  │  └─ signup/page.tsx        <span class="cm"># "/signup"</span>
+│  ├─ (app)/                    <span class="cm"># route group: protected app pages</span>
+│  │  ├─ layout.tsx             <span class="cm"># auth guard + header + sign out</span>
+│  │  └─ board/page.tsx         <span class="cm"># "/board" placeholder</span>
+│  └─ api/auth/[...nextauth]/route.ts  <span class="cm"># NextAuth HTTP endpoints</span>
+├─ components/auth/auth-form.tsx <span class="cm"># shared login/signup form (client)</span>
+├─ lib/                          <span class="cm"># non-UI server logic</span>
+│  ├─ prisma.ts                  <span class="cm"># database client singleton</span>
+│  ├─ password.ts                <span class="cm"># hash / verify helpers</span>
+│  ├─ validations/auth.ts        <span class="cm"># Zod schemas</span>
+│  └─ actions/auth.ts            <span class="cm"># server actions: login, signup, logout</span>
+├─ prisma/
+│  ├─ schema.prisma              <span class="cm"># the data model (source of truth)</span>
+│  └─ migrations/                <span class="cm"># versioned SQL history</span>
+├─ generated/prisma/             <span class="cm"># generated client (gitignored)</span>
+├─ types/next-auth.d.ts          <span class="cm"># add `id` to the session type</span>
+├─ auth.config.ts                <span class="cm"># edge-safe auth config (used by proxy)</span>
+├─ auth.ts                       <span class="cm"># full auth config (providers + DB)</span>
+├─ proxy.ts                      <span class="cm"># runs before pages; route protection</span>
+├─ prisma.config.ts              <span class="cm"># Prisma 7 config (loads env, paths)</span>
+├─ .env                          <span class="cm"># secrets (gitignored)</span>
+├─ .env.example                  <span class="cm"># template (committed)</span>
+├─ package.json / pnpm-lock.yaml <span class="cm"># dependencies + scripts</span>
+├─ tsconfig.json                 <span class="cm"># TypeScript config + @/* alias</span>
+├─ AGENTS.md                     <span class="cm"># fixed project conventions</span>
+└─ build-plan.html               <span class="cm"># the phased plan</span></code></pre>
+  <div class="box why">
+    <span class="lbl">Why route groups</span>
+    <p><code class="k">(auth)</code> and <code class="k">(app)</code> let us give each section its <em>own layout</em> (a bare centered card vs a header with sign-out) and group the protected pages together, without those folder names appearing in the URL. <code class="k">/login</code> stays <code class="k">/login</code>, not <code class="k">/auth/login</code>.</p>
+  </div>
+</section>
+
+<section id="pnpm">
+  <h2>5. pnpm and the package files <a href="#use" class="toplink">top</a></h2>
+  <p><strong>pnpm</strong> is the package manager. It installs dependencies into a single global content-addressed store and links them into each project, so the same package is never downloaded or stored twice. It is also strict: a package can only import what it actually declares, which prevents "it works by accident" bugs.</p>
+
+  <h4>package.json - the scripts that matter</h4>
+<pre><code>"scripts": {
+  "dev": "next dev",                       <span class="cm"># local dev server</span>
+  "build": "prisma generate &amp;&amp; next build", <span class="cm"># generate client, then build</span>
+  "start": "next start",                   <span class="cm"># run the production build</span>
+  "postinstall": "prisma generate",        <span class="cm"># regenerate client after install</span>
+  "db:migrate": "prisma migrate dev",       <span class="cm"># create + apply a migration (dev)</span>
+  "db:deploy": "prisma migrate deploy",     <span class="cm"># apply migrations (prod)</span>
+  "db:studio": "prisma studio"              <span class="cm"># visual DB browser</span>
+}</code></pre>
+  <div class="box why">
+    <span class="lbl">Why <code class="k">prisma generate</code> in build and postinstall</span>
+    <p>The Prisma client is generated code we keep out of git (see section 9). So anywhere the code is freshly installed (your machine, or Vercel's build), we must regenerate it before the TypeScript compiles, or the import <code class="k">@/generated/prisma/client</code> would not exist.</p>
+  </div>
+
+  <h4>pnpm-workspace.yaml - allowed build scripts</h4>
+  <p>pnpm does <em>not</em> run a dependency's install scripts by default (a supply-chain safety measure). Some packages genuinely need theirs. We explicitly allow them:</p>
+<pre><code>allowBuilds:
+  '@prisma/engines': true   <span class="cm"># downloads the query engine binary</span>
+  prisma: true
+  sharp: true
+  unrs-resolver: true</code></pre>
+
+  <h4>pnpm-lock.yaml</h4>
+  <p>The lockfile pins the exact resolved version of every package (direct and transitive). Commit it. It is what makes installs reproducible across machines and CI.</p>
+</section>
+
+<section id="ts">
+  <h2>6. TypeScript config <a href="#use" class="toplink">top</a></h2>
+  <p>Two lines in <span class="filepath">tsconfig.json</span> matter most for understanding the codebase.</p>
+<pre><code>"strict": true,            <span class="cm"># all strict checks on: no implicit any, null checks, etc.</span>
+"paths": { "@/*": ["./*"] } <span class="cm"># import alias: @/lib/prisma == ./lib/prisma</span></code></pre>
+  <p>The <code class="k">@/</code> alias means imports are written from the project root instead of with fragile relative paths like <code class="k">../../../lib/prisma</code>. So <code class="k">@/lib/prisma</code>, <code class="k">@/auth</code>, and <code class="k">@/generated/prisma/client</code> all resolve from the root.</p>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha</span>
+    <p>Because our app uses the root layout (no <code class="k">src/</code> folder), the alias maps <code class="k">@/*</code> to <code class="k">./*</code>. If you had used a <code class="k">src/</code> directory it would map to <code class="k">./src/*</code>. Mixing them up is a classic "module not found" head-scratcher.</p>
+  </div>
+</section>
+
+<section id="env">
+  <h2>7. Environment, secrets, and Neon branching <a href="#use" class="toplink">top</a></h2>
+  <h3>Two files, one rule</h3>
+  <ul>
+    <li><span class="filepath">.env</span> - holds the real secrets (database URL, auth secret). <strong>Gitignored. Never committed.</strong></li>
+    <li><span class="filepath">.env.example</span> - a committed template with placeholder values, so anyone cloning the repo knows which variables to set.</li>
+  </ul>
+  <p>Our <span class="filepath">.gitignore</span> ignores all <code class="k">.env*</code> files but re-includes the example with <code class="k">!.env.example</code>.</p>
+<pre><code>DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require&amp;channel_binding=require"
+AUTH_SECRET="...generated with: openssl rand -base64 33..."</code></pre>
+  <p><code class="k">AUTH_SECRET</code> is the key NextAuth uses to sign and encrypt the session token. If it leaks or changes, existing sessions become invalid.</p>
+
+  <h3>Neon branching: separate dev and prod databases</h3>
+  <p>We deliberately do not share one database between development and production. Neon's <strong>branching</strong> gives us two isolated Postgres databases inside one project:</p>
+  <div class="flow">
+<pre>
+  Neon project "huntboard"
+   ├─ production branch   →  ep-red-waterfall...   (Vercel uses this)
+   └─ development branch  →  ep-small-bird...      (your local .env uses this)
+</pre>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why separate</span>
+    <p>If dev and prod shared a database, a test record or a half-applied migration during development could corrupt real user data. Isolated branches mean you can experiment freely. Each branch is a full, independent Postgres database with its own connection string.</p>
+  </div>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: pooled vs direct connection</span>
+    <p>Neon gives a "pooled" string (host contains <code class="k">-pooler</code>) and a "direct" one. Connection pooling (PgBouncer) is great for serverless app runtime, but it breaks schema <em>migrations</em>. For local dev and migrations we use the <strong>direct</strong> string. We will reintroduce the pooled string for the deployed runtime in the deploy phase.</p>
+  </div>
+</section>
+
+<section id="prisma">
+  <h2>8. Prisma and the driver adapter <a href="#use" class="toplink">top</a></h2>
+  <p>Prisma is the ORM (Object-Relational Mapper). You describe your tables in <span class="filepath">prisma/schema.prisma</span>, Prisma generates a fully typed client, and you query the database in TypeScript instead of raw SQL.</p>
+
+  <h3>The three config pieces</h3>
+  <h4>schema.prisma (top of file)</h4>
+<pre><code><span class="kw">generator</span> client {
+  provider = <span class="st">"prisma-client"</span>      <span class="cm"># Prisma 7's new generator (ESM, custom output)</span>
+  output   = <span class="st">"../generated/prisma"</span> <span class="cm"># where the client code is written</span>
+}
+<span class="kw">datasource</span> db {
+  provider = <span class="st">"postgresql"</span>          <span class="cm"># which database engine</span>
+}</code></pre>
+
+  <h4>prisma.config.ts</h4>
+  <p>New in Prisma 7. It loads <code class="k">.env</code> and tells the Prisma CLI where the schema, migrations, and connection URL are.</p>
+<pre><code><span class="kw">import</span> <span class="st">"dotenv/config"</span>; <span class="cm"># loads .env into process.env</span>
+<span class="kw">export default</span> defineConfig({
+  schema: <span class="st">"prisma/schema.prisma"</span>,
+  migrations: { path: <span class="st">"prisma/migrations"</span> },
+  datasource: { url: process.env[<span class="st">"DATABASE_URL"</span>] },
+});</code></pre>
+
+  <div class="box gotcha">
+    <span class="lbl">Prisma 7 breaking change #1</span>
+    <p>The connection URL no longer lives in the <code class="k">datasource</code> block of <code class="k">schema.prisma</code>. It moved to <code class="k">prisma.config.ts</code>, which loads it from the environment via <code class="k">dotenv</code>. Older tutorials still show <code class="k">url = env("DATABASE_URL")</code> in the schema.</p>
+  </div>
+
+  <h3>The driver adapter</h3>
+  <p>Prisma 7's client is "engine-less": instead of bundling a query engine that opens its own DB connection, <strong>you</strong> hand it a database driver through an adapter. We use <code class="k">@prisma/adapter-pg</code>, which wraps <code class="k">pg</code> (node-postgres) over a normal TCP connection.</p>
+  <div class="box gotcha">
+    <span class="lbl">Prisma 7 breaking change #2</span>
+    <p><code class="k">new PrismaClient()</code> now <strong>requires an adapter argument</strong>. Calling it with no arguments is a type error ("Expected 1 arguments, but got 0"). We hit this during the Phase 1 build and fixed it by passing the pg adapter.</p>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why adapter-pg and not adapter-neon</span>
+    <p>The Neon serverless adapter talks over WebSockets, which is built for <em>edge</em> runtimes. Our server code runs on the Node.js runtime, where a plain TCP connection via <code class="k">pg</code> is simpler and more robust. Fewer moving parts, no WebSocket edge cases. If we ever needed edge, we would switch adapters - the rest of the code would not change.</p>
+  </div>
+</section>
+
+<section id="singleton">
+  <h2>9. The Prisma client singleton <a href="#use" class="toplink">top</a></h2>
+  <p class="codecap">lib/prisma.ts</p>
+<pre><code><span class="kw">import</span> { PrismaPg } <span class="kw">from</span> <span class="st">"@prisma/adapter-pg"</span>;
+<span class="kw">import</span> { PrismaClient } <span class="kw">from</span> <span class="st">"@/generated/prisma/client"</span>;
+
+<span class="kw">const</span> connectionString = process.env.DATABASE_URL;
+<span class="kw">if</span> (!connectionString) {
+  <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">"DATABASE_URL is not set"</span>);  <span class="cm"># fail fast, with a clear message</span>
+}
+
+<span class="kw">const</span> globalForPrisma = globalThis <span class="kw">as unknown as</span> { prisma: PrismaClient | undefined };
+
+<span class="kw">const</span> adapter = <span class="kw">new</span> <span class="fn">PrismaPg</span>({ connectionString });
+
+<span class="kw">export const</span> prisma = globalForPrisma.prisma ?? <span class="kw">new</span> <span class="fn">PrismaClient</span>({ adapter });
+
+<span class="kw">if</span> (process.env.NODE_ENV !== <span class="st">"production"</span>) {
+  globalForPrisma.prisma = prisma;  <span class="cm"># reuse across hot reloads in dev</span>
+}</code></pre>
+  <div class="box why">
+    <span class="lbl">Why the global trick</span>
+    <p>In development, Next.js hot-reloads your code on every save. Without this pattern, each reload would create a <em>new</em> PrismaClient and open a new pool of DB connections, quickly exhausting the database's connection limit ("too many connections"). Stashing the client on <code class="k">globalThis</code> means we reuse the same instance across reloads. In production there is no hot reload, so we skip the global and just create one.</p>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>This exact snippet is a known Next.js + Prisma pattern. Being able to explain <em>why</em> (hot reload connection exhaustion) is a small but real signal that you have actually run these tools, not just copied them.</p>
+  </div>
+  <p>Everywhere else in the app we simply <code class="k">import { prisma } from "@/lib/prisma"</code> and call typed methods like <code class="k">prisma.user.findUnique(...)</code>.</p>
+</section>
+
+<section id="migrations">
+  <h2>10. Migrations <a href="#use" class="toplink">top</a></h2>
+  <p>A <strong>migration</strong> is a versioned SQL file that describes a change to the database schema. Running migrations in order takes any database from empty to the current shape. They are the database equivalent of git commits.</p>
+  <table>
+    <tr><th>Command</th><th>What it does</th><th>When</th></tr>
+    <tr><td><code>prisma migrate dev</code></td><td>Diffs schema vs DB, writes a new SQL migration file, applies it, regenerates the client</td><td>Local development</td></tr>
+    <tr><td><code>prisma migrate deploy</code></td><td>Applies existing migration files only (never generates)</td><td>Production / CI</td></tr>
+    <tr><td><code>prisma db push</code></td><td>Force the DB to match the schema with no migration file</td><td>Quick prototyping only</td></tr>
+  </table>
+  <p>We used <code class="k">db push</code> once in Phase 1 just to prove the connection worked on an empty schema, then switched to real <code class="k">migrate dev</code> in Phase 2 so we have a proper, versioned history (the file <code class="k">prisma/migrations/2026..._init/migration.sql</code>).</p>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: the shadow database</span>
+    <p><code class="k">migrate dev</code> needs a temporary "shadow database" to detect drift. It creates and drops one automatically, which requires the DB user to have create-database permission. Neon's <code class="k">neondb_owner</code> has it, so it just worked. On some managed Postgres providers you must configure a separate shadow DB URL.</p>
+  </div>
+</section>
+
+<section id="datamodel">
+  <h2>11. The data model <a href="#use" class="toplink">top</a></h2>
+  <p>The heart of the app. Three tables and two enums. Read this slowly - the relationships are what make it more than a CRUD demo.</p>
+  <p class="codecap">prisma/schema.prisma</p>
+<pre><code><span class="kw">enum</span> ApplicationStatus { WISHLIST  APPLIED  OA  INTERVIEW  OFFER  REJECTED }
+<span class="kw">enum</span> EventType        { APPLIED  OA  INTERVIEW  FOLLOW_UP  OFFER  REJECTED  NOTE }
+
+<span class="kw">model</span> User {
+  id           String   <span class="nm">@id @default(cuid())</span>
+  name         String?                  <span class="cm"># ? means optional / nullable</span>
+  email        String   <span class="nm">@unique</span>      <span class="cm"># no two users share an email</span>
+  passwordHash String                   <span class="cm"># bcrypt hash, never the raw password</span>
+  isGuest      Boolean  <span class="nm">@default(false)</span>
+  createdAt    DateTime <span class="nm">@default(now())</span>
+  updatedAt    DateTime <span class="nm">@updatedAt</span>      <span class="cm"># auto-set on every update</span>
+  applications Application[]            <span class="cm"># one user has many applications</span>
+}
+
+<span class="kw">model</span> Application {
+  id          String            <span class="nm">@id @default(cuid())</span>
+  userId      String                              <span class="cm"># foreign key to User</span>
+  company     String
+  role        String
+  jobUrl      String?
+  location    String?
+  salaryRange String?
+  status      ApplicationStatus <span class="nm">@default(WISHLIST)</span>
+  source      String?
+  appliedAt   DateTime?
+  createdAt   DateTime          <span class="nm">@default(now())</span>
+  updatedAt   DateTime          <span class="nm">@updatedAt</span>
+  user   User    <span class="nm">@relation</span>(fields: [userId], references: [id], onDelete: Cascade)
+  events Event[]                                  <span class="cm"># one application has many events</span>
+  <span class="nm">@@index</span>([userId])                              <span class="cm"># fast "all apps for a user"</span>
+}
+
+<span class="kw">model</span> Event {
+  id            String    <span class="nm">@id @default(cuid())</span>
+  applicationId String
+  type          EventType
+  notes         String?
+  scheduledAt   DateTime?
+  createdAt     DateTime  <span class="nm">@default(now())</span>
+  application Application <span class="nm">@relation</span>(fields: [applicationId], references: [id], onDelete: Cascade)
+  <span class="nm">@@index</span>([applicationId])
+}</code></pre>
+
+  <h3>Concept by concept</h3>
+  <table>
+    <tr><th>Thing</th><th>What it means</th></tr>
+    <tr><td><code>@id @default(cuid())</code></td><td>Primary key, auto-generated as a collision-resistant URL-safe string. Chosen over auto-increment integers, which leak how many rows exist and are guessable.</td></tr>
+    <tr><td><code>String?</code></td><td>The <code>?</code> makes a field optional (nullable). <code>jobUrl</code>, <code>location</code>, <code>salaryRange</code> may be empty.</td></tr>
+    <tr><td><code>@unique</code></td><td>Database-enforced uniqueness. The signup flow relies on this to reject duplicate emails.</td></tr>
+    <tr><td><code>@relation(... onDelete: Cascade)</code></td><td>Defines the foreign key. <strong>Cascade</strong> means deleting a User automatically deletes their Applications, and deleting an Application deletes its Events. No orphan rows.</td></tr>
+    <tr><td><code>User[]</code> / <code>Event[]</code></td><td>The "many" side of a one-to-many relation. Prisma lets you traverse it in code: <code>user.applications</code>.</td></tr>
+    <tr><td><code>@@index([userId])</code></td><td>A database index on the foreign key, so "fetch all applications for this user" stays fast as data grows.</td></tr>
+    <tr><td><code>@updatedAt</code></td><td>Prisma sets this timestamp automatically on every update.</td></tr>
+    <tr><td><code>enum</code></td><td>A fixed set of allowed values. <code>status</code> can only ever be one of the six pipeline stages - the database itself enforces it.</td></tr>
+  </table>
+
+  <div class="flow">
+<pre>
+  User  ──(1 to many)──▶  Application  ──(1 to many)──▶  Event
+  one person             many job apps                many timeline
+                         (each has a status)          events per app
+</pre>
+  </div>
+
+  <div class="box interview">
+    <span class="lbl">Interview gold</span>
+    <p>The one-to-many relations plus cascade deletes plus the enum-constrained pipeline are exactly what turns this from "a table of rows" into "a person who models relational data." When asked about the schema, lead with the relationships and why cascade deletes prevent orphans.</p>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why no OAuth / Session tables</span>
+    <p>We chose email + password only (no Google login) and JWT sessions. So we deliberately did <em>not</em> add the <code class="k">Account</code> / <code class="k">Session</code> / <code class="k">VerificationToken</code> tables that NextAuth's database adapter would need. Carrying unused tables is dead weight. Lean schema = honest schema.</p>
+  </div>
+</section>
+
+<section id="authconcepts">
+  <h2>12. Authentication concepts <a href="#use" class="toplink">top</a></h2>
+  <p>Before the code, the vocabulary. Mixing these up is the most common auth confusion.</p>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Authentication</strong></td><td>Proving <em>who you are</em> (logging in with email + password).</td></tr>
+    <tr><td><strong>Authorization</strong></td><td>Deciding <em>what you are allowed to do</em> (only see your own applications).</td></tr>
+    <tr><td><strong>Session</strong></td><td>The server's memory that "this browser is logged in as user X" across requests.</td></tr>
+    <tr><td><strong>JWT</strong></td><td>JSON Web Token. A signed, tamper-proof token stored in a cookie that <em>contains</em> the session data, so the server does not need a session table.</td></tr>
+    <tr><td><strong>Hash</strong></td><td>A one-way scramble of the password. You can verify a guess against it but never reverse it back to the password.</td></tr>
+    <tr><td><strong>CSRF</strong></td><td>Cross-Site Request Forgery. An attack where another site tricks your browser into submitting a request. NextAuth defends with a token (section 18).</td></tr>
+  </table>
+
+  <h3>Why JWT sessions (not database sessions)</h3>
+  <div class="box why">
+    <span class="lbl">Two reasons</span>
+    <p><strong>1. Required:</strong> NextAuth's Credentials provider only works with the JWT strategy, not database sessions. <strong>2. Better anyway:</strong> JWT is stateless - the session lives in the signed cookie, so there is no database read on every request to look up a session. That scales more cleanly.</p>
+  </div>
+</section>
+
+<section id="authjs">
+  <h2>13. NextAuth v5 wiring <a href="#use" class="toplink">top</a></h2>
+  <p>The auth setup is intentionally split into two files. Understanding <em>why it is split</em> is the key insight.</p>
+
+  <h3>The split: auth.config.ts vs auth.ts</h3>
+  <div class="box why">
+    <span class="lbl">Why two files</span>
+    <p>The <code class="k">proxy.ts</code> (which runs on every request) should stay lightweight and must <strong>not</strong> import heavy, Node-only code like Prisma or bcrypt. So we put the lightweight, portable config (session strategy, callbacks, the "is this route allowed" check) in <code class="k">auth.config.ts</code>, and the heavy part (the Credentials provider that touches the database) in <code class="k">auth.ts</code>. The proxy imports only the lightweight half.</p>
+  </div>
+
+  <p class="codecap">auth.config.ts (lightweight, imported by the proxy)</p>
+<pre><code><span class="kw">export const</span> authConfig = {
+  trustHost: <span class="kw">true</span>,
+  session: { strategy: <span class="st">"jwt"</span> },        <span class="cm"># stateless sessions in a cookie</span>
+  pages: { signIn: <span class="st">"/login"</span> },         <span class="cm"># our custom login page</span>
+  providers: [],                          <span class="cm"># filled in by auth.ts</span>
+  callbacks: {
+    <span class="fn">authorized</span>({ auth, request: { nextUrl } }) {
+      <span class="kw">const</span> isLoggedIn = !!auth?.user;
+      <span class="kw">const</span> isAuthPage = [<span class="st">"/login"</span>, <span class="st">"/signup"</span>].includes(nextUrl.pathname);
+      <span class="kw">if</span> (isAuthPage) {                     <span class="cm"># logged-in users skip login/signup</span>
+        <span class="kw">if</span> (isLoggedIn) <span class="kw">return</span> Response.redirect(<span class="kw">new</span> URL(<span class="st">"/board"</span>, nextUrl));
+        <span class="kw">return true</span>;
+      }
+      <span class="kw">return</span> isLoggedIn;                    <span class="cm"># every other matched route requires login</span>
+    },
+    <span class="fn">jwt</span>({ token, user }) {                <span class="cm"># runs when the token is created/updated</span>
+      <span class="kw">if</span> (user) token.id = user.id;        <span class="cm"># put the DB id into the token</span>
+      <span class="kw">return</span> token;
+    },
+    <span class="fn">session</span>({ session, token }) {         <span class="cm"># shapes what the app sees as `session`</span>
+      <span class="kw">if</span> (token.id) session.user.id = token.id <span class="kw">as</span> string;
+      <span class="kw">return</span> session;
+    },
+  },
+};</code></pre>
+
+  <p class="codecap">auth.ts (full config, imports DB + bcrypt)</p>
+<pre><code><span class="kw">export const</span> { handlers, auth, signIn, signOut } = <span class="fn">NextAuth</span>({
+  ...authConfig,
+  providers: [
+    <span class="fn">Credentials</span>({
+      <span class="kw">async</span> <span class="fn">authorize</span>(credentials) {
+        <span class="kw">const</span> parsed = loginSchema.<span class="fn">safeParse</span>(credentials); <span class="cm"># validate input</span>
+        <span class="kw">if</span> (!parsed.success) <span class="kw">return null</span>;
+        <span class="kw">const</span> { email, password } = parsed.data;
+        <span class="kw">const</span> user = <span class="kw">await</span> prisma.user.<span class="fn">findUnique</span>({ where: { email } });
+        <span class="kw">if</span> (!user) <span class="kw">return null</span>;                          <span class="cm"># unknown email</span>
+        <span class="kw">const</span> valid = <span class="kw">await</span> <span class="fn">verifyPassword</span>(password, user.passwordHash);
+        <span class="kw">if</span> (!valid) <span class="kw">return null</span>;                          <span class="cm"># wrong password</span>
+        <span class="kw">return</span> { id: user.id, email: user.email, name: user.name }; <span class="cm"># success</span>
+      },
+    }),
+  ],
+});</code></pre>
+  <p><code class="k">NextAuth(...)</code> returns four things we use everywhere:</p>
+  <ul>
+    <li><code class="k">handlers</code> - the GET/POST HTTP routes, re-exported in <span class="filepath">app/api/auth/[...nextauth]/route.ts</span>.</li>
+    <li><code class="k">auth</code> - call it in a server component to read the current session.</li>
+    <li><code class="k">signIn</code> / <code class="k">signOut</code> - call from server actions to start/end a session.</li>
+  </ul>
+
+  <h3>The authorize function is the trust boundary</h3>
+  <p>Returning a user object = success. Returning <code class="k">null</code> = rejected. Notice it returns the same <code class="k">null</code> for "unknown email" and "wrong password" - we never tell an attacker which one was wrong.</p>
+
+  <h3>How the id reaches the app</h3>
+  <div class="flow">
+<pre>
+  authorize() returns { id, email, name }
+        │
+        ▼
+  jwt callback:  token.id = user.id        (id baked into the signed cookie)
+        │
+        ▼
+  session callback:  session.user.id = token.id
+        │
+        ▼
+  any server component:  const s = await auth();  s.user.id   ← your user id
+</pre>
+  </div>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: the type augmentation</span>
+    <p>By default TypeScript does not know <code class="k">session.user.id</code> exists. We add it in <span class="filepath">types/next-auth.d.ts</span> by augmenting NextAuth's <code class="k">Session</code> interface. (The JWT side did not pick up cleanly in this beta, so we cast <code class="k">token.id as string</code> in the session callback - a small, contained workaround.)</p>
+  </div>
+</section>
+
+<section id="password">
+  <h2>14. Password hashing <a href="#use" class="toplink">top</a></h2>
+  <p class="codecap">lib/password.ts</p>
+<pre><code><span class="kw">import</span> bcrypt <span class="kw">from</span> <span class="st">"bcryptjs"</span>;
+<span class="kw">const</span> SALT_ROUNDS = 12;
+<span class="kw">export function</span> <span class="fn">hashPassword</span>(password: string) { <span class="kw">return</span> bcrypt.<span class="fn">hash</span>(password, SALT_ROUNDS); }
+<span class="kw">export function</span> <span class="fn">verifyPassword</span>(password: string, hash: string) { <span class="kw">return</span> bcrypt.<span class="fn">compare</span>(password, hash); }</code></pre>
+  <ul>
+    <li>We store only the <strong>hash</strong>, never the password. Even if the database leaks, passwords are not exposed.</li>
+    <li><strong>Salt rounds = 12</strong>: bcrypt automatically generates a random salt and runs 2^12 iterations. Higher = slower = harder to brute force. 12 is a sane modern default.</li>
+    <li>The salt is stored <em>inside</em> the resulting hash string, which is why <code class="k">compare</code> needs only the password and the hash.</li>
+  </ul>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: the 72-byte limit</span>
+    <p>bcrypt only looks at the first 72 bytes of a password. Our Zod schema caps password length at 72 so a longer password is not silently truncated, which would be a subtle correctness bug.</p>
+  </div>
+</section>
+
+<section id="proxy">
+  <h2>15. Route protection (proxy.ts) <a href="#use" class="toplink">top</a></h2>
+  <p class="codecap">proxy.ts</p>
+<pre><code><span class="kw">import</span> NextAuth <span class="kw">from</span> <span class="st">"next-auth"</span>;
+<span class="kw">import</span> { authConfig } <span class="kw">from</span> <span class="st">"@/auth.config"</span>;
+<span class="kw">const</span> { auth } = <span class="fn">NextAuth</span>(authConfig);   <span class="cm"># lightweight config only - no DB/bcrypt</span>
+<span class="kw">export default</span> auth;                       <span class="cm"># the function Next runs before pages</span>
+<span class="kw">export const</span> config = {
+  matcher: [<span class="st">"/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\..*).*)"</span>],
+};</code></pre>
+  <p>On every matching request, the proxy runs the <code class="k">authorized</code> callback from <code class="k">auth.config.ts</code>. If it returns <code class="k">false</code>, NextAuth redirects to <code class="k">/login</code>. The <code class="k">matcher</code> is a regex that <em>excludes</em> the auth API, Next's internal assets, the favicon, and any file with an extension - so the proxy only guards real pages.</p>
+  <div class="box why">
+    <span class="lbl">Why protect twice (proxy AND layout)</span>
+    <p>The proxy redirects logged-out users early. But our <span class="filepath">app/(app)/layout.tsx</span> <em>also</em> calls <code class="k">await auth()</code> and redirects if there is no session. This is <strong>defense in depth</strong>: even if a matcher rule was wrong, the page itself still refuses to render for a logged-out user. The layout also gives us the session object to show the user's email and a sign-out button.</p>
+  </div>
+  <p class="codecap">app/(app)/layout.tsx (the guard part)</p>
+<pre><code><span class="kw">const</span> session = <span class="kw">await</span> <span class="fn">auth</span>();
+<span class="kw">if</span> (!session?.user) {
+  <span class="fn">redirect</span>(<span class="st">"/login"</span>);   <span class="cm"># server-side redirect, runs before any UI</span>
+}</code></pre>
+</section>
+
+<section id="zod">
+  <h2>16. Validation with Zod <a href="#use" class="toplink">top</a></h2>
+  <p>Never trust input from the browser. Zod schemas validate and <em>transform</em> input at the server boundary, and give us TypeScript types for free.</p>
+  <p class="codecap">lib/validations/auth.ts</p>
+<pre><code><span class="kw">const</span> email = z.<span class="fn">email</span>(<span class="st">"Enter a valid email"</span>)
+  .<span class="fn">transform</span>((v) =&gt; v.<span class="fn">toLowerCase</span>().<span class="fn">trim</span>());   <span class="cm"># normalize before storing</span>
+
+<span class="kw">const</span> password = z.<span class="fn">string</span>()
+  .<span class="fn">min</span>(8, <span class="st">"Password must be at least 8 characters"</span>)
+  .<span class="fn">max</span>(72, <span class="st">"Password must be at most 72 characters"</span>); <span class="cm"># bcrypt limit</span>
+
+<span class="kw">export const</span> loginSchema  = z.<span class="fn">object</span>({ email, password });
+<span class="kw">export const</span> signupSchema = z.<span class="fn">object</span>({ name: z.<span class="fn">string</span>().<span class="fn">trim</span>().<span class="fn">min</span>(1).<span class="fn">max</span>(100), email, password });</code></pre>
+  <ul>
+    <li><code class="k">safeParse(input)</code> returns <code class="k">{ success, data }</code> without throwing - we check <code class="k">success</code> and use the clean, typed <code class="k">data</code>.</li>
+    <li>The email <code class="k">transform</code> means <code class="k">"  Me@X.com "</code> is always stored and compared as <code class="k">"me@x.com"</code>, so casing/whitespace can never create duplicate-looking accounts.</li>
+    <li><code class="k">z.infer&lt;typeof signupSchema&gt;</code> derives the TypeScript type from the schema - one source of truth.</li>
+  </ul>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"Validate on the server, not just the client" is a security fundamental. Client validation is UX; server validation is the real gate. We do both.</p>
+  </div>
+</section>
+
+<section id="actions">
+  <h2>17. Server Actions <a href="#use" class="toplink">top</a></h2>
+  <p>Server Actions let a form call a server function directly. No hand-written API route, no fetch, no JSON plumbing.</p>
+  <p class="codecap">lib/actions/auth.ts (signup, condensed)</p>
+<pre><code><span class="st">"use server"</span>;   <span class="cm"># everything in this file runs only on the server</span>
+
+<span class="kw">export async function</span> <span class="fn">signup</span>(_prev, formData) {
+  <span class="kw">const</span> parsed = signupSchema.<span class="fn">safeParse</span>({
+    name: formData.<span class="fn">get</span>(<span class="st">"name"</span>),
+    email: formData.<span class="fn">get</span>(<span class="st">"email"</span>),
+    password: formData.<span class="fn">get</span>(<span class="st">"password"</span>),
+  });
+  <span class="kw">if</span> (!parsed.success) <span class="kw">return</span> { error: parsed.error.issues[0]?.message };
+
+  <span class="kw">const</span> { name, email, password } = parsed.data;
+  <span class="kw">try</span> {
+    <span class="kw">await</span> prisma.user.<span class="fn">create</span>({
+      data: { name, email, passwordHash: <span class="kw">await</span> <span class="fn">hashPassword</span>(password) },
+    });
+  } <span class="kw">catch</span> (error) {
+    <span class="kw">if</span> (error <span class="kw">instanceof</span> Prisma.PrismaClientKnownRequestError &amp;&amp; error.code === <span class="st">"P2002"</span>)
+      <span class="kw">return</span> { error: <span class="st">"An account with this email already exists"</span> };  <span class="cm"># unique violation</span>
+    <span class="kw">throw</span> error;
+  }
+  <span class="kw">await</span> <span class="fn">signIn</span>(<span class="st">"credentials"</span>, { email, password, redirectTo: <span class="st">"/board"</span> });
+}</code></pre>
+  <p>Key ideas:</p>
+  <ul>
+    <li>Signature is <code class="k">(previousState, formData)</code> because it is used with React's <code class="k">useActionState</code> hook, which threads error state back into the form.</li>
+    <li>Postgres error code <strong>P2002</strong> is a unique-constraint violation. We rely on the database's <code class="k">@unique</code> on email rather than a "does this email exist" pre-check, which would have a race condition.</li>
+    <li>On success it calls <code class="k">signIn</code>, which logs the new user in and redirects to <code class="k">/board</code>.</li>
+  </ul>
+
+  <h3>The client side that calls it</h3>
+  <p>The shared <span class="filepath">components/auth/auth-form.tsx</span> is a client component using two hooks:</p>
+  <ul>
+    <li><code class="k">useActionState(action, undefined)</code> - wires the server action to the form and exposes its returned <code class="k">state</code> (so we can show <code class="k">state.error</code>).</li>
+    <li><code class="k">useFormStatus()</code> - tells the submit button when the action is <code class="k">pending</code>, so we disable it and show "Please wait...".</li>
+  </ul>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: signIn throws a redirect</span>
+    <p>On success, <code class="k">signIn(... redirectTo)</code> works by <em>throwing</em> a special redirect signal. So in a try/catch you must only catch real auth errors (<code class="k">AuthError</code>) and <strong>re-throw</strong> everything else, or you would accidentally swallow the redirect. Our login/signup actions do exactly that.</p>
+  </div>
+</section>
+
+<section id="flows">
+  <h2>18. End-to-end flows <a href="#use" class="toplink">top</a></h2>
+
+  <h3>Sign up</h3>
+  <div class="flow">
+<pre>
+1. User fills the form at /signup  (client component)
+2. Form submit calls the `signup` server action with FormData
+3. Zod validates + normalizes (lowercase email, length checks)
+4. password is bcrypt-hashed (12 rounds)
+5. prisma.user.create inserts the row
+      └─ duplicate email? Postgres P2002 → "account already exists"
+6. signIn("credentials") logs them in → JWT cookie set
+7. throw redirect → browser lands on /board
+</pre>
+  </div>
+
+  <h3>Log in</h3>
+  <div class="flow">
+<pre>
+1. User submits /login form → `login` server action
+2. signIn("credentials") triggers authorize() in auth.ts
+3. authorize: Zod parse → find user by email → bcrypt compare
+      └─ any failure returns null → "Invalid email or password"
+4. success → jwt callback bakes user.id into the signed token
+5. session cookie set → redirect to /board
+</pre>
+  </div>
+
+  <h3>Visiting a protected page</h3>
+  <div class="flow">
+<pre>
+1. GET /board
+2. proxy.ts runs authorized() → reads JWT cookie
+      └─ no valid session → 307 redirect to /login?callbackUrl=/board
+3. session valid → (app)/layout.tsx ALSO calls auth() (defense in depth)
+4. board/page.tsx (server component) calls auth() and renders
+</pre>
+  </div>
+  <p>We verified this exact behavior with curl in Phase 2: <code class="k">/board</code> unauthenticated returned <code class="k">307 → /login</code>, and after a real CSRF + credentials POST the session endpoint returned the user with their <code class="k">id</code>, and <code class="k">/board</code> returned <code class="k">200</code>.</p>
+
+  <h3>The CSRF handshake (what that curl test exercised)</h3>
+  <div class="flow">
+<pre>
+1. GET /api/auth/csrf      → returns a csrfToken + sets a cookie
+2. POST /api/auth/callback/credentials
+        body: csrfToken + email + password   (cookie sent back)
+3. NextAuth checks the token matches the cookie  → blocks forged requests
+4. authorize() runs → on success, session cookie returned
+</pre>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why CSRF matters</span>
+    <p>Without it, a malicious page could auto-submit a login/logout request using your browser's cookies. The double-submit token (must appear in both the cookie and the body) proves the request came from our own form.</p>
+  </div>
+
+  <h3>Sign out</h3>
+  <p>The header's sign-out button is a tiny form whose <code class="k">action</code> is the <code class="k">logout</code> server action, which calls <code class="k">signOut({ redirectTo: "/login" })</code> - clearing the cookie and redirecting.</p>
+</section>
+
+<section id="gotchas">
+  <h2>19. Version-specific gotchas we hit <a href="#use" class="toplink">top</a></h2>
+  <p>These are recent-version surprises. Knowing them is worth real money in interviews because most tutorials predate them.</p>
+  <table>
+    <tr><th>#</th><th>Surprise</th><th>Fix</th></tr>
+    <tr><td>1</td><td>Turbopack failed with a corrupted native SWC binary after an interrupted install</td><td>Clean reinstall; do a single clean <code>create-next-app</code> rather than moving node_modules around</td></tr>
+    <tr><td>2</td><td>npm rejected the project name (capital "H" in Huntboard)</td><td>Package name must be lowercase; scaffold then set <code>name</code> to <code>huntboard</code></td></tr>
+    <tr><td>3</td><td>Prisma 7: connection URL no longer in <code>schema.prisma</code></td><td>It lives in <code>prisma.config.ts</code>, loaded via dotenv</td></tr>
+    <tr><td>4</td><td>Prisma 7: <code>new PrismaClient()</code> needs an argument</td><td>Pass a driver adapter: <code>new PrismaClient({ adapter })</code></td></tr>
+    <tr><td>5</td><td>Next 16: <code>middleware.ts</code> deprecated</td><td>Rename to <code>proxy.ts</code>, export a real function (default or named <code>proxy</code>)</td></tr>
+    <tr><td>6</td><td>NextAuth v5 beta: <code>session.user.id</code> not typed</td><td>Augment the <code>Session</code> type; cast <code>token.id as string</code></td></tr>
+    <tr><td>7</td><td>pnpm blocked Prisma's install (build) scripts</td><td>Allow them in <code>pnpm-workspace.yaml</code> under <code>allowBuilds</code></td></tr>
+  </table>
+</section>
+
+<section id="glossary">
+  <h2>20. Glossary <a href="#use" class="toplink">top</a></h2>
+  <table>
+    <tr><td><strong>ORM</strong></td><td>Object-Relational Mapper. Lets you query a relational DB with typed code instead of raw SQL. (Prisma)</td></tr>
+    <tr><td><strong>Server Component</strong></td><td>React component that runs only on the server; can access the DB and secrets; never shipped to the browser.</td></tr>
+    <tr><td><strong>Client Component</strong></td><td>Component marked <code>"use client"</code>; runs in the browser; can use state and event handlers.</td></tr>
+    <tr><td><strong>Server Action</strong></td><td>Function marked <code>"use server"</code>; callable from the client but executes on the server.</td></tr>
+    <tr><td><strong>Proxy</strong></td><td>Code that runs before a request reaches a page (Next 16's rename of "middleware"). Used here for auth gating.</td></tr>
+    <tr><td><strong>Route group</strong></td><td>A folder in parentheses like <code>(app)</code> that organizes routes and layouts without adding to the URL.</td></tr>
+    <tr><td><strong>Migration</strong></td><td>A versioned SQL file describing a schema change; applied in order to evolve the DB.</td></tr>
+    <tr><td><strong>Driver adapter</strong></td><td>Prisma 7 mechanism where you supply the actual DB driver (here <code>pg</code>) to the client.</td></tr>
+    <tr><td><strong>Connection pooling</strong></td><td>Reusing a small set of DB connections across many requests. Great for serverless runtime, bad for migrations.</td></tr>
+    <tr><td><strong>JWT</strong></td><td>Signed token stored in a cookie that carries the session, so no session table is needed.</td></tr>
+    <tr><td><strong>Salt</strong></td><td>Random data mixed into a password before hashing so identical passwords get different hashes.</td></tr>
+    <tr><td><strong>CSRF token</strong></td><td>A value required in both a cookie and the request body to prove a request came from your own site.</td></tr>
+    <tr><td><strong>Cascade delete</strong></td><td>Deleting a parent row automatically deletes its child rows (User → Applications → Events).</td></tr>
+    <tr><td><strong>cuid</strong></td><td>Collision-resistant unique id; a URL-safe string primary key, preferred over auto-increment integers.</td></tr>
+    <tr><td><strong>Hot reload</strong></td><td>Dev feature that re-runs changed code without a full restart; the reason we cache the Prisma client on <code>globalThis</code>.</td></tr>
+  </table>
+</section>
+
+<section id="rebuild">
+  <h2>21. Rebuild-from-scratch checklist <a href="#use" class="toplink">top</a></h2>
+  <p>If you had to recreate Phases 1 and 2 from an empty folder, this is the order. Try to do it without peeking, then check yourself.</p>
+  <ol>
+    <li>Scaffold: <code class="k">pnpm create next-app</code> (TypeScript, Tailwind, App Router, alias <code>@/*</code>). Lowercase package name.</li>
+    <li>Install DB layer: <code class="k">pnpm add @prisma/client @prisma/adapter-pg pg</code>, <code class="k">pnpm add -D prisma dotenv @types/pg</code>.</li>
+    <li>Allow Prisma build scripts in <code class="k">pnpm-workspace.yaml</code>.</li>
+    <li><code class="k">pnpm prisma init --datasource-provider postgresql</code>; set generator output to <code>../generated/prisma</code>; gitignore <code>/generated</code>.</li>
+    <li>Create a Neon project; make a <code>development</code> branch; put the <em>direct</em> connection string in <code>.env</code> as <code>DATABASE_URL</code>.</li>
+    <li>Write <code class="k">lib/prisma.ts</code> singleton with the pg adapter + env guard.</li>
+    <li>Add <code>build</code>/<code>postinstall</code> = <code>prisma generate</code> and the <code>db:*</code> scripts.</li>
+    <li>Write the schema (User, Application, Event, enums); <code class="k">pnpm prisma migrate dev --name init</code>.</li>
+    <li>Install auth: <code class="k">pnpm add next-auth@beta bcryptjs zod</code>; generate <code>AUTH_SECRET</code> with <code>openssl rand -base64 33</code>.</li>
+    <li>Create <code>lib/password.ts</code>, <code>lib/validations/auth.ts</code>, <code>auth.config.ts</code>, <code>auth.ts</code>, <code>proxy.ts</code>, the NextAuth route, <code>types/next-auth.d.ts</code>.</li>
+    <li>Build the server actions (login, signup, logout) and the shared auth form.</li>
+    <li>Add the <code>(auth)</code> and <code>(app)</code> route groups with their layouts and a protected board page.</li>
+    <li><code class="k">pnpm build</code> to confirm types, then verify routing with curl.</li>
+  </ol>
+</section>
+
+<section id="selftest">
+  <h2>22. Self-test <a href="#use" class="toplink">top</a></h2>
+  <p>If you can answer these out loud, you own this codebase. Click to reveal.</p>
+
+  <details><summary class="q">Why is the Prisma client cached on globalThis in development?</summary>
+  Next.js hot-reloads on every save. Without caching, each reload creates a new PrismaClient with a new connection pool, exhausting the database's connection limit. Caching on globalThis reuses one instance. Production skips this because there is no hot reload.</details>
+
+  <details><summary class="q">Why split auth into auth.config.ts and auth.ts?</summary>
+  proxy.ts runs on every request and must stay lightweight, so it cannot import Node-only code like Prisma or bcrypt. The lightweight config (session strategy, callbacks, route check) goes in auth.config.ts which the proxy imports; the heavy Credentials provider that touches the DB goes in auth.ts.</details>
+
+  <details><summary class="q">Why JWT sessions instead of database sessions?</summary>
+  Two reasons: the Credentials provider requires the JWT strategy, and JWT is stateless so there is no DB read per request to validate a session, which scales better.</details>
+
+  <details><summary class="q">How does a user's id get from the database into session.user.id?</summary>
+  authorize() returns { id, ... } on success. The jwt callback copies user.id onto the token (baked into the signed cookie). The session callback copies token.id onto session.user.id. Any server component then reads it via await auth().</details>
+
+  <details><summary class="q">Why do we rely on a DB unique constraint for duplicate emails instead of checking first?</summary>
+  A "does this email exist" check followed by an insert has a race condition: two requests could both pass the check and then both insert. The unique constraint (@unique) makes the database the single arbiter; we catch error code P2002 to report the duplicate.</details>
+
+  <details><summary class="q">Why cap password length at 72?</summary>
+  bcrypt only considers the first 72 bytes. Without the cap, a longer password would be silently truncated, which is a subtle correctness/security bug.</details>
+
+  <details><summary class="q">What does the proxy matcher exclude and why?</summary>
+  It excludes /api/auth, Next's internal static/image assets, the favicon, and any path with a file extension, so the auth gate only runs on real page routes, not on assets or the auth endpoints themselves.</details>
+
+  <details><summary class="q">Why protect a route in both the proxy and the layout?</summary>
+  Defense in depth. The proxy redirects early; the layout's await auth() guard ensures the page still refuses to render for a logged-out user even if a matcher rule were misconfigured. The layout also provides the session for the header UI.</details>
+
+  <details><summary class="q">What changed in Prisma 7 that broke our first build?</summary>
+  Two things: the connection URL moved out of schema.prisma into prisma.config.ts, and new PrismaClient() now requires a driver adapter argument. We pass new PrismaClient({ adapter: new PrismaPg({ connectionString }) }).</details>
+
+  <details><summary class="q">Why bcryptjs instead of native bcrypt?</summary>
+  bcryptjs is pure JavaScript, so there is no native binary to compile or to break on a serverless platform like Vercel. Slightly slower, but far more robust to deploy.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of the Phase 1 and 2 deep dive. Phase 3 continues below.</p>
+</section>
+
+<section id="crud">
+  <h2>23. What CRUD means <a href="#use" class="toplink">top</a></h2>
+  <p><strong>CRUD</strong> stands for the four things you can do with a piece of data: <strong>C</strong>reate, <strong>R</strong>ead, <strong>U</strong>pdate, <strong>D</strong>elete. Almost every app is, underneath, a CRUD app. A notes app creates/reads/updates/deletes notes. Instagram creates/reads/updates/deletes posts. Huntboard creates/reads/updates/deletes <em>job applications</em>.</p>
+  <p>Phase 3 gives a logged-in user the full set for their applications:</p>
+  <table>
+    <tr><th>Letter</th><th>In Huntboard</th><th>Where it lives</th></tr>
+    <tr><td><strong>Create</strong></td><td>Add a new application</td><td><code>/applications/new</code> form + <code>createApplication</code></td></tr>
+    <tr><td><strong>Read</strong></td><td>See your list, filter by status</td><td><code>/applications</code> page + <code>listApplications</code></td></tr>
+    <tr><td><strong>Update</strong></td><td>Edit an application</td><td><code>/applications/[id]/edit</code> + <code>updateApplication</code></td></tr>
+    <tr><td><strong>Delete</strong></td><td>Remove an application</td><td>Delete button + <code>deleteApplication</code></td></tr>
+  </table>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"CRUD done properly" is what turns a toy into a portfolio piece. The word "properly" means three things: input is validated on the server, every operation is scoped to the owner, and the UI has real loading/empty/error states. We do all three.</p>
+  </div>
+</section>
+
+<section id="layers">
+  <h2>24. The layered architecture <a href="#use" class="toplink">top</a></h2>
+  <p>Instead of dumping database calls directly inside page files, we split the work into layers. Think of it like a restaurant: the dining room (UI) never walks into the kitchen and cooks; it sends an order ticket. Each layer has one job.</p>
+  <div class="flow">
+<pre>
+  UI (pages + components)          "show me the applications" / "save this"
+        │  reads via                    │  writes via
+        ▼                               ▼
+  lib/data/applications.ts        lib/actions/applications.ts   ("use server")
+  (READ queries, scoped)          (CREATE / UPDATE / DELETE, scoped + validated)
+        │                               │
+        └───────────────┬───────────────┘
+                        ▼
+                  lib/prisma.ts  ──────────▶  PostgreSQL (Neon)
+</pre>
+  </div>
+  <table>
+    <tr><th>Layer</th><th>File</th><th>Job</th></tr>
+    <tr><td>Constants</td><td><code>lib/constants/application.ts</code></td><td>One source of truth for the six statuses, their labels, and badge colors. DB, validation, and UI all import from here so they can never drift apart.</td></tr>
+    <tr><td>Session helper</td><td><code>lib/session.ts</code></td><td><code>requireUser()</code> - returns the logged-in user or redirects to /login. Every protected read and write calls it first.</td></tr>
+    <tr><td>Validation</td><td><code>lib/validations/application.ts</code></td><td>The Zod schema that cleans and checks form input before it can touch the database.</td></tr>
+    <tr><td>Data (read)</td><td><code>lib/data/applications.ts</code></td><td><code>listApplications</code>, <code>getApplication</code> - the only place read queries live.</td></tr>
+    <tr><td>Actions (write)</td><td><code>lib/actions/applications.ts</code></td><td>The server actions that create, update, and delete.</td></tr>
+  </table>
+  <div class="box why">
+    <span class="lbl">Why bother splitting</span>
+    <p>Three payoffs. <strong>Reuse:</strong> the kanban board (Phase 5) and dashboard (Phase 6) will read applications too, and they will call the same <code class="k">listApplications</code> instead of rewriting the query. <strong>Consistency:</strong> if every query goes through one file, it is easy to guarantee every query is scoped to the user. <strong>Testability and clarity:</strong> a page is about layout; a data file is about data. Mixing them makes both harder to change.</p>
+  </div>
+</section>
+
+<section id="authz">
+  <h2>25. Authorization - the crux of the whole phase <a href="#use" class="toplink">top</a></h2>
+  <p>This is the most important idea in Phase 3, and the thing interviewers deliberately test. <strong>Authentication</strong> proved <em>who you are</em> (Phase 2). <strong>Authorization</strong> makes sure you can only touch <em>your own</em> data.</p>
+
+  <h3>The attack we are defending against</h3>
+  <p>Every application has an id, and the id appears in the URL when you edit: <code class="k">/applications/app_a1/edit</code>. A curious or malicious user could simply change that id in the address bar to someone else's application id and hit enter. If the code naively fetched "the application with this id", it would happily hand over a stranger's data. This class of bug even has a name: <strong>IDOR</strong> (Insecure Direct Object Reference). It is one of the most common real-world security holes.</p>
+
+  <h3>How we make it impossible</h3>
+  <p>The trick is simple and absolute: <strong>never look up a row by id alone. Always require it to also belong to the current user.</strong></p>
+
+  <h4>Reads</h4>
+  <p class="codecap">lib/data/applications.ts</p>
+<pre><code><span class="kw">export function</span> <span class="fn">getApplication</span>(userId: string, id: string) {
+  <span class="kw">return</span> prisma.application.<span class="fn">findFirst</span>({
+    where: { id, userId },   <span class="cm"># must match BOTH the id AND the owner</span>
+  });
+}</code></pre>
+  <div class="box why">
+    <span class="lbl">Why findFirst and not findUnique</span>
+    <p><code class="k">findUnique</code> can only search by a single unique field (the id), so it cannot also require <code class="k">userId</code>. <code class="k">findFirst</code> lets us add the <code class="k">userId</code> condition. If the application belongs to someone else, the <code class="k">where</code> matches nothing and we get <code class="k">null</code> - and the edit page then calls <code class="k">notFound()</code>, showing a 404. The attacker cannot even tell whether the id exists.</p>
+  </div>
+
+  <h4>Writes</h4>
+  <p class="codecap">lib/actions/applications.ts</p>
+<pre><code><span class="kw">await</span> prisma.application.<span class="fn">updateMany</span>({
+  where: { id, userId: user.id },   <span class="cm"># same double condition</span>
+  data: parsed.data,
+});
+<span class="cm">// deleteMany works the same way</span>
+<span class="kw">await</span> prisma.application.<span class="fn">deleteMany</span>({ where: { id, userId: user.id } });</code></pre>
+  <div class="box why">
+    <span class="lbl">Why updateMany / deleteMany instead of update / delete</span>
+    <p><code class="k">update</code> and <code class="k">delete</code> also require a single unique field, so they cannot carry the <code class="k">userId</code> guard. <code class="k">updateMany</code> and <code class="k">deleteMany</code> accept a full <code class="k">where</code>. If the row is not owned by the user, they simply affect <strong>zero rows</strong> - no error, no leak, no change. We check the returned <code class="k">count</code> and report "not found" if it was zero. This means even a perfectly forged request with a real id it does not own does absolutely nothing.</p>
+  </div>
+
+  <h4>The one helper that ties it together</h4>
+  <p>Every read and write starts with <code class="k">const user = await requireUser()</code>. Because the user id always comes from the <em>verified session</em> (never from the form or URL), the attacker cannot supply their own userId. They are permanently locked to their own data.</p>
+
+  <h3>We proved it, not just claimed it</h3>
+  <p>During Phase 3 we created two users, A and B, gave A an application ("Acme Corp"), then checked with real HTTP requests:</p>
+  <div class="flow">
+<pre>
+  User A → GET /applications              → "Acme Corp" appears        (1 match)
+  User A → GET /applications/app_a1/edit  → 200 OK
+  User B → GET /applications              → "Acme Corp" absent         (0 matches)
+  User B → GET /applications/app_a1/edit  → 404 Not Found
+</pre>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview gold</span>
+    <p>If asked "how do you stop a user seeing another user's data", answer with the exact mechanism: "I never fetch by id alone. Reads use <code>findFirst</code> with <code>{ id, userId }</code>; writes use <code>updateMany</code>/<code>deleteMany</code> with the same guard so a mismatched owner affects zero rows. The userId always comes from the session, never the request. I verified it with two users." That is a senior answer.</p>
+  </div>
+</section>
+
+<section id="mutations">
+  <h2>26. Mutations and cache revalidation <a href="#use" class="toplink">top</a></h2>
+  <p>A <strong>mutation</strong> is any change to data (create, update, delete). Ours are Server Actions - the same pattern as the Phase 2 login, so you already know the shape.</p>
+  <p class="codecap">lib/actions/applications.ts (create)</p>
+<pre><code><span class="kw">export async function</span> <span class="fn">createApplication</span>(_prev, formData) {
+  <span class="kw">const</span> user = <span class="kw">await</span> <span class="fn">requireUser</span>();               <span class="cm"># 1. who is this?</span>
+  <span class="kw">const</span> parsed = <span class="fn">parse</span>(formData);                  <span class="cm"># 2. validate + clean input</span>
+  <span class="kw">if</span> (!parsed.success) <span class="kw">return</span> { error: ... };       <span class="cm"># 3. bounce bad input</span>
+
+  <span class="kw">await</span> prisma.application.<span class="fn">create</span>({
+    data: { ...parsed.data, userId: user.id },       <span class="cm"># 4. save, stamped with owner</span>
+  });
+
+  <span class="fn">revalidatePath</span>(<span class="st">"/applications"</span>);              <span class="cm"># 5. refresh the cached list</span>
+  <span class="fn">redirect</span>(<span class="st">"/applications"</span>);                    <span class="cm"># 6. send the user back to it</span>
+}</code></pre>
+
+  <h3>What is <code class="k">revalidatePath</code> and why do we need it?</h3>
+  <p>Next.js <strong>caches</strong> rendered pages to make them fast. The applications list is one of those cached pages. If we add a new application but do not tell Next the list changed, the user could be shown the old, stale list. <code class="k">revalidatePath("/applications")</code> says "the data behind this URL changed, throw away its cache and rebuild it next time." So the new row shows up immediately.</p>
+  <div class="box why">
+    <span class="lbl">A simple analogy</span>
+    <p>Caching is like a printed menu. It is fast because you do not re-check the kitchen every time. But when a dish changes, you must reprint the menu or people order things that no longer exist. <code class="k">revalidatePath</code> is the reprint.</p>
+  </div>
+  <p>The <strong>update</strong> and <strong>delete</strong> actions do the same three-step opening (who, validate, scope), then their scoped <code class="k">updateMany</code>/<code class="k">deleteMany</code>, then <code class="k">revalidatePath</code>.</p>
+</section>
+
+<section id="crudui">
+  <h2>27. The CRUD user interface <a href="#use" class="toplink">top</a></h2>
+
+  <h3>One form for both create and edit</h3>
+  <p><code class="k">components/applications/application-form.tsx</code> is a single client component used by <em>both</em> the New and Edit pages. It takes three props: the <code class="k">action</code> to run, optional <code class="k">defaultValues</code> (empty for create, the existing row for edit), and a <code class="k">submitLabel</code>. Writing one form instead of two means the fields, styling, and validation live in exactly one place.</p>
+
+  <h4>How the edit form knows which application to save</h4>
+  <p>The update action needs the application id, but we do <strong>not</strong> want the id to be an editable field in the form (a user could tamper with it). So we "pre-attach" the id to the action on the server before handing it to the form:</p>
+<pre><code><span class="kw">const</span> action = updateApplication.<span class="fn">bind</span>(<span class="kw">null</span>, application.id);</code></pre>
+  <p><code class="k">.bind</code> creates a new version of the function with the first argument (the id) already filled in. The form just calls <code class="k">action(prevState, formData)</code> and never sees or controls the id.</p>
+  <div class="box why">
+    <span class="lbl">Belt and suspenders</span>
+    <p>Even if someone bypassed <code class="k">bind</code> and forged a different id, the <code class="k">updateMany({ where: { id, userId } })</code> guard from section 25 would still refuse to touch a row they do not own. The id being non-editable is convenience; the scoping is the real security.</p>
+  </div>
+
+  <h3>The list page</h3>
+  <p><code class="k">app/(app)/applications/page.tsx</code> is a server component. It reads the <code class="k">?status=</code> value from the URL, validates it against the allowed statuses, fetches the (scoped) list, and renders a table. Two details worth noting:</p>
+  <ul>
+    <li><strong>Filtering by URL:</strong> the status filter is just links to <code class="k">/applications?status=APPLIED</code> and friends. The state lives in the URL, so a filtered view is shareable and survives a refresh - no client-side state needed.</li>
+    <li><strong>Empty state:</strong> when there are no applications, we show a friendly "Add your first one" panel instead of a blank table. Real apps always handle the empty case; it is a small thing that signals care.</li>
+  </ul>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: searchParams and params are async now</span>
+    <p>In Next 15/16, a page's <code class="k">searchParams</code> and <code class="k">params</code> are <strong>Promises</strong>. You must <code class="k">await</code> them: <code class="k">const { status } = await searchParams;</code>. Older tutorials access them synchronously, which no longer works.</p>
+  </div>
+
+  <h3>Delete with a confirm</h3>
+  <p>The delete button is a tiny client component wrapping a form whose action is the bound <code class="k">deleteApplication</code>. It adds a browser <code class="k">confirm()</code> dialog on submit, so a misclick does not silently destroy data. If the user cancels, we <code class="k">preventDefault()</code> and nothing happens.</p>
+</section>
+
+<section id="selftest3">
+  <h2>28. Phase 3 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">What does CRUD stand for and where does each letter live in Huntboard?</summary>
+  Create (/applications/new + createApplication), Read (/applications + listApplications), Update (/applications/[id]/edit + updateApplication), Delete (delete button + deleteApplication).</details>
+
+  <details><summary class="q">A user changes the id in /applications/[id]/edit to someone else's. What happens and why?</summary>
+  They get a 404. getApplication uses findFirst with where { id, userId }, so a row they do not own does not match and returns null, and the page calls notFound(). The userId comes from the verified session, so they cannot fake ownership.</details>
+
+  <details><summary class="q">Why updateMany/deleteMany instead of update/delete?</summary>
+  update and delete require a single unique field and cannot carry a userId guard. updateMany/deleteMany accept a full where clause, so { id, userId } means a non-owned row affects zero rows - no error, no change. We check count to report "not found".</details>
+
+  <details><summary class="q">What is revalidatePath and why is it needed after a mutation?</summary>
+  Next.js caches rendered pages. After changing data we call revalidatePath("/applications") to invalidate that cache so the list rebuilds with fresh data instead of showing a stale version.</details>
+
+  <details><summary class="q">Why keep read queries in lib/data and writes in lib/actions instead of inside the pages?</summary>
+  Reuse (kanban and dashboard will call the same queries), consistency (one place to guarantee every query is user-scoped), and clarity (pages handle layout, data files handle data).</details>
+
+  <details><summary class="q">How does the edit form pass the application id to the update action without exposing it as a field?</summary>
+  updateApplication.bind(null, id) pre-fills the id argument on the server, so the form calls action(prev, formData) and never controls the id. The scoping guard still protects against forged ids regardless.</details>
+
+  <details><summary class="q">Why is the status filter stored in the URL (?status=) rather than in component state?</summary>
+  A URL-based filter is shareable, bookmarkable, and survives a refresh, and it needs no client-side state - the server component just reads the query param and queries accordingly.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of Phase 3. Phase 4 continues below.</p>
+</section>
+
+<section id="relations">
+  <h2>29. The second relationship: Application to Event <a href="#use" class="toplink">top</a></h2>
+  <p>Phase 4 adds the <strong>timeline</strong>: each application can carry a list of events (applied, online assessment, interview, follow-up, offer, rejected, or a plain note). This is the second <strong>one-to-many</strong> relationship in the app, and it stacks on the first:</p>
+  <div class="flow">
+<pre>
+  User  ──(1 to many)──▶  Application  ──(1 to many)──▶  Event
+  one person             many job apps                many timeline
+                                                      events per app
+</pre>
+  </div>
+  <p>The <code class="k">Event</code> table already existed in our schema from Phase 2 - we just had not used it yet. Each event row stores which application it belongs to (<code class="k">applicationId</code>), a <code class="k">type</code> (from a fixed enum), optional <code class="k">notes</code>, and an optional <code class="k">scheduledAt</code> date.</p>
+
+  <h3>Reading an application together with its events</h3>
+  <p>Prisma lets us fetch a row and its related rows in one query using <code class="k">include</code>:</p>
+  <p class="codecap">lib/data/applications.ts</p>
+<pre><code><span class="kw">export function</span> <span class="fn">getApplicationDetail</span>(userId: string, id: string) {
+  <span class="kw">return</span> prisma.application.<span class="fn">findFirst</span>({
+    where: { id, userId },                       <span class="cm"># still scoped to the owner</span>
+    include: {
+      events: { orderBy: { createdAt: <span class="st">"desc"</span> } },  <span class="cm"># newest first</span>
+    },
+  });
+}</code></pre>
+  <div class="box why">
+    <span class="lbl">Why include instead of a second query</span>
+    <p><code class="k">include</code> fetches the application and its events in a single round-trip and returns them as one nested object (<code class="k">application.events</code>). Writing a separate query for the events would mean two trips to the database and more code. This is the ORM earning its keep.</p>
+  </div>
+</section>
+
+<section id="transitive">
+  <h2>30. Transitive authorization <a href="#use" class="toplink">top</a></h2>
+  <p>In Phase 3 the rule was "a user can only touch applications where <code class="k">userId</code> matches." Events are trickier: an event has no <code class="k">userId</code> of its own. It belongs to a user <em>through</em> its application. So ownership is <strong>transitive</strong>: you own an event if you own the application it hangs off.</p>
+  <p>We enforce this two ways depending on the operation.</p>
+
+  <h4>Adding an event: check the parent first</h4>
+  <p class="codecap">lib/actions/events.ts (addEvent)</p>
+<pre><code><span class="kw">const</span> owned = <span class="kw">await</span> prisma.application.<span class="fn">findFirst</span>({
+  where: { id: applicationId, userId: user.id },   <span class="cm"># do you own the parent?</span>
+  select: { id: true },
+});
+<span class="kw">if</span> (!owned) <span class="kw">return</span> { error: <span class="st">"Application not found"</span> };  <span class="cm"># no -> refuse</span>
+
+<span class="kw">await</span> prisma.event.<span class="fn">create</span>({ data: { ...parsed.data, applicationId } });</code></pre>
+  <p>We confirm the application belongs to the user <em>before</em> attaching an event to it. If they do not own it, we stop.</p>
+
+  <h4>Deleting an event: a relation filter</h4>
+  <p>Prisma can filter by a condition on a <em>related</em> table. That lets us delete an event only if its application is owned by the user, in one query:</p>
+  <p class="codecap">lib/actions/events.ts (deleteEvent)</p>
+<pre><code><span class="kw">await</span> prisma.event.<span class="fn">deleteMany</span>({
+  where: { id: eventId, application: { userId: user.id } },  <span class="cm"># event AND its app's owner</span>
+});</code></pre>
+  <div class="box why">
+    <span class="lbl">What that where clause means</span>
+    <p><code class="k">application: { userId: user.id }</code> is a <strong>relation filter</strong>. It reads as "the event whose id is eventId <em>and</em> whose parent application has this userId." If a user passes an event id that belongs to someone else's application, the filter matches nothing and, exactly like Phase 3, zero rows are deleted. Same guarantee, one relationship deeper.</p>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>Nested/child resources are where a lot of real apps leak data, because people forget the child has no owner column of its own. Being able to say "I scope child writes through a relation filter on the parent's userId" is a strong, specific answer. We proved it: user B got a 404 on user A's application detail, so B cannot even see A's events, let alone delete them.</p>
+  </div>
+</section>
+
+<section id="detailpage">
+  <h2>31. The detail page and timeline UI <a href="#use" class="toplink">top</a></h2>
+  <p>The detail page lives at <code class="k">/applications/[id]</code>. It is a server component that:</p>
+  <ol>
+    <li>calls <code class="k">requireUser()</code>, then <code class="k">getApplicationDetail(user.id, id)</code>,</li>
+    <li>renders a 404 with <code class="k">notFound()</code> if the application is missing or not owned,</li>
+    <li>shows the header (company, role, status badge, Edit and Delete), a small meta grid (location, salary, source, posting link, applied date), and the timeline.</li>
+  </ol>
+
+  <h3>The timeline component</h3>
+  <p><code class="k">EventTimeline</code> renders the events as a vertical list with a colored dot per event type, the type label, a date (the scheduled date if set, otherwise when it was logged), any notes, and a Remove button. When there are no events it shows a friendly empty state instead.</p>
+
+  <h3>Adding events without a page reload feeling</h3>
+  <p>The <code class="k">AddEventForm</code> is a client component wired to the <code class="k">addEvent</code> action, which is pre-bound with the application id (<code class="k">addEvent.bind(null, application.id)</code>) - the same <code class="k">bind</code> trick from Phase 3, so the id is not a tamperable field. After a successful add, the action calls <code class="k">revalidatePath("/applications/&lt;id&gt;")</code>, so the timeline below re-renders with the new event immediately.</p>
+
+  <div class="box why">
+    <span class="lbl">Why events are separate from status</span>
+    <p>We deliberately did not make logging an "Interview" event automatically flip the application's status to Interview. Keeping them independent avoids hidden side effects (the kind of "why did my status change?" surprise that makes software feel unpredictable). Status is changed explicitly on the edit form. If we wanted auto-advancement later, we would make it an obvious, opt-in action.</p>
+  </div>
+  <p>Finally, the list page now links each company name to its detail page, and <code class="k">deleteApplication</code> redirects back to <code class="k">/applications</code> after deleting, so removing an application from the detail page lands you cleanly back on the list.</p>
+</section>
+
+<section id="selftest4">
+  <h2>32. Phase 4 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">What kind of relationship is Application to Event, and how do we load them together?</summary>
+  One-to-many (one application has many events). We load them in a single query with Prisma's include: { events: { orderBy: { createdAt: "desc" } } } inside getApplicationDetail.</details>
+
+  <details><summary class="q">An Event has no userId column. How do we know who owns it?</summary>
+  Ownership is transitive: you own an event if you own its parent application. So we authorize through the application - checking application ownership before adding, and using a relation filter on delete.</details>
+
+  <details><summary class="q">What is a Prisma relation filter and where do we use it?</summary>
+  A where condition on a related table. In deleteEvent we use where { id: eventId, application: { userId } } so an event is only deleted if its parent application belongs to the current user. A non-owned event matches zero rows.</details>
+
+  <details><summary class="q">Why check application ownership before creating an event instead of relying on the create call?</summary>
+  event.create only needs an applicationId and would happily attach an event to any application. So we first findFirst the application scoped by userId and refuse if it is not owned, closing the hole.</details>
+
+  <details><summary class="q">Why did we keep event logging separate from application status?</summary>
+  To avoid hidden side effects. Auto-changing status when an event is logged would be surprising and hard to predict. Status changes explicitly via the edit form; any auto-advancement would be an obvious opt-in.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of Phase 4. Phase 5 continues below.</p>
+</section>
+
+<section id="dnd">
+  <h2>33. Drag and drop <a href="#use" class="toplink">top</a></h2>
+  <p>Phase 5 turns the plain list into a <strong>kanban board</strong>: six columns (one per pipeline stage) with cards you can drag between them. Dropping a card in a new column changes that application's status. It is the same data as the list, shown as a pipeline you can manipulate directly.</p>
+
+  <h3>Why a library, and which one</h3>
+  <p>Drag and drop looks simple but is genuinely hard to get right: mouse and touch and keyboard input, scroll while dragging, accessibility, collision detection. We use <strong>@dnd-kit</strong>, the modern, actively maintained, accessible toolkit for React.</p>
+  <div class="box why">
+    <span class="lbl">Alternatives rejected</span>
+    <p><code class="k">react-beautiful-dnd</code> is deprecated and unmaintained. The browser's built-in HTML5 drag and drop has poor touch support and awkward ergonomics. @dnd-kit supports pointer, touch, and <em>keyboard</em> dragging out of the box, which is the accessible, professional choice.</p>
+  </div>
+
+  <h3>The three moving parts</h3>
+  <table>
+    <tr><th>Piece</th><th>@dnd-kit tool</th><th>In our code</th></tr>
+    <tr><td>The arena</td><td><code>DndContext</code></td><td><code>kanban-board.tsx</code> wraps everything and receives the drag events</td></tr>
+    <tr><td>A draggable card</td><td><code>useDraggable</code></td><td><code>kanban-card.tsx</code></td></tr>
+    <tr><td>A drop target (column)</td><td><code>useDroppable</code></td><td><code>kanban-column.tsx</code></td></tr>
+  </table>
+  <p>Each card's draggable id is the <em>application id</em>. Each column's droppable id is the <em>status string</em> (WISHLIST, APPLIED, ...). So when a drag ends, "which card, dropped where" is literally "which application id, onto which status."</p>
+  <p class="codecap">kanban-board.tsx (the drop handler)</p>
+<pre><code><span class="kw">function</span> <span class="fn">handleDragEnd</span>(event) {
+  <span class="kw">const</span> id = <span class="fn">String</span>(event.active.id);          <span class="cm"># the card = application id</span>
+  <span class="kw">const</span> status = event.over?.id;                <span class="cm"># the column = new status</span>
+  <span class="kw">if</span> (!status) <span class="kw">return</span>;                        <span class="cm"># dropped outside any column</span>
+  <span class="kw">const</span> card = optimistic.<span class="fn">find</span>((a) =&gt; a.id === id);
+  <span class="kw">if</span> (!card || card.status === status) <span class="kw">return</span>;  <span class="cm"># no move, nothing to do</span>
+  <span class="fn">startTransition</span>(<span class="kw">async</span> () =&gt; {
+    <span class="fn">applyMove</span>({ id, status });              <span class="cm"># update UI instantly (section 35)</span>
+    <span class="kw">await</span> <span class="fn">updateApplicationStatus</span>(id, status);  <span class="cm"># persist in the database</span>
+  });
+}</code></pre>
+
+  <h3>The drag handle</h3>
+  <p>Notice the card has a small grip icon in the corner, and only that icon carries the drag listeners. The rest of the card is a normal link to the detail page. This "drag handle" pattern avoids a classic conflict: if the whole card were draggable, clicking it to open the detail could accidentally start a drag. Separating the handle from the link makes both behaviors reliable.</p>
+</section>
+
+<section id="serverclient">
+  <h2>34. Passing data from server to client <a href="#use" class="toplink">top</a></h2>
+  <p>Drag and drop needs interactivity, so the board must be a <strong>client component</strong>. But the applications live in the database, which only <strong>server components</strong> can read. We bridge the two the standard way:</p>
+  <div class="flow">
+<pre>
+  board/page.tsx  (server component)
+    requireUser()  →  listApplications(user.id)   ← scoped read
+    │  maps rows to { id, company, role, status }
+    ▼  passes as a prop
+  &lt;KanbanBoard applications={cards} /&gt;   (client component)
+    handles all the dragging in the browser
+</pre>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why not fetch in the client</span>
+    <p>The server component already has a secure, user-scoped database connection. Fetching there and passing the result down means no extra API endpoint, no loading spinner on first paint, and the authorization stays on the server where it belongs. The client component only receives the already-filtered data it is allowed to see.</p>
+  </div>
+  <p>The board page passes only the four fields a card needs (id, company, role, status), not the whole row. Sending the minimum keeps the client bundle small and avoids leaking fields the UI does not use.</p>
+</section>
+
+<section id="optimistic">
+  <h2>35. Optimistic updates <a href="#use" class="toplink">top</a></h2>
+  <p>When you drop a card in a new column, waiting for the database round-trip before the card visibly moves would feel laggy. So we move the card <strong>immediately</strong> in the UI, then save in the background. This is an <strong>optimistic update</strong>: we optimistically assume the save will succeed.</p>
+  <p>React gives us a hook built exactly for this: <code class="k">useOptimistic</code>.</p>
+  <p class="codecap">kanban-board.tsx</p>
+<pre><code><span class="kw">const</span> [optimistic, applyMove] = <span class="fn">useOptimistic</span>(
+  applications,                              <span class="cm"># the real data from the server</span>
+  (state, move) =&gt;                           <span class="cm"># how to compute the temporary view</span>
+    state.<span class="fn">map</span>((a) =&gt; (a.id === move.id ? { ...a, status: move.status } : a)),
+);</code></pre>
+  <p>We render <code class="k">optimistic</code> (not the raw prop). When a drag happens, <code class="k">applyMove</code> instantly produces a version of the list with that card in its new column, so the UI updates the moment you drop. Meanwhile the server action saves the change and calls <code class="k">revalidatePath("/board")</code>, which sends down fresh real data. Once that arrives, <code class="k">useOptimistic</code> automatically discards the temporary view and shows the confirmed truth.</p>
+  <div class="box why">
+    <span class="lbl">The safety net</span>
+    <p>If the save ever failed, <code class="k">useOptimistic</code> would snap the card back to where it really is, because the optimistic view only lives as long as the pending action. The user is never shown a lie for longer than the request takes. This is the honest way to do "instant" UI.</p>
+  </div>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha</span>
+    <p>Optimistic updates must be dispatched inside a transition (or a server action call). We wrap <code class="k">applyMove</code> and the <code class="k">await updateApplicationStatus</code> together in <code class="k">startTransition</code>, so React ties the temporary state to the lifetime of that save.</p>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"How do you make a drag feel instant without lying to the user?" Answer: optimistic UI with useOptimistic, tied to the server action inside a transition, so a failed save reverts automatically. The status update on the server is still a scoped updateMany, so the security story from Phase 3 carries straight over.</p>
+  </div>
+</section>
+
+<section id="selftest5">
+  <h2>36. Phase 5 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">What do the draggable id and droppable id represent in our board?</summary>
+  The draggable id on each card is the application id. The droppable id on each column is the status string. So a drop tells us exactly which application to move to which status.</details>
+
+  <details><summary class="q">Why is the board a client component but the data still fetched on the server?</summary>
+  Drag and drop needs browser interactivity (client), but the database read must be server-side and user-scoped. The server component (board/page.tsx) fetches with listApplications(user.id) and passes the minimal card data as a prop to the client KanbanBoard.</details>
+
+  <details><summary class="q">What is an optimistic update and which hook implements it here?</summary>
+  Moving the card in the UI immediately while the save happens in the background. React's useOptimistic computes a temporary view from the real data; when the server revalidates, the temporary view is discarded for the confirmed data. A failed save reverts automatically.</details>
+
+  <details><summary class="q">Why use a drag handle instead of making the whole card draggable?</summary>
+  The card body is a link to the detail page. If the whole card were draggable, a click could accidentally start a drag. Putting the drag listeners only on the grip icon keeps both clicking and dragging reliable.</details>
+
+  <details><summary class="q">Does the kanban weaken the authorization from earlier phases?</summary>
+  No. Dropping a card calls updateApplicationStatus, which is a scoped updateMany({ where: { id, userId } }). A user still cannot change the status of an application they do not own; the drag is just a nicer trigger for the same guarded write.</details>
+
+  <details><summary class="q">Why did we pick @dnd-kit?</summary>
+  It is modern, maintained, and accessible (pointer, touch, and keyboard). react-beautiful-dnd is deprecated, and native HTML5 drag and drop has poor touch support.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of Phase 5. Phase 6 continues below.</p>
+</section>
+
+<section id="aggregation">
+  <h2>37. Deriving metrics from raw data <a href="#use" class="toplink">top</a></h2>
+  <p>Every phase so far stored or displayed rows. The dashboard is different: it <strong>computes</strong> new information that is not stored anywhere. This is the most "engineering" part of the app, because the value is in the calculation, not the storage.</p>
+  <p>All the math happens in one server-side function, <code class="k">getDashboardStats(userId)</code>. It reads the user's applications once, then reduces them into numbers.</p>
+  <p class="codecap">lib/data/stats.ts (the shape)</p>
+<pre><code><span class="kw">const</span> applications = <span class="kw">await</span> prisma.application.<span class="fn">findMany</span>({
+  where: { userId },                       <span class="cm"># still scoped to the owner</span>
+  select: { status: <span class="kw">true</span>, createdAt: <span class="kw">true</span> },   <span class="cm"># only the columns the math needs</span>
+});
+
+<span class="cm">// count how many applications sit in each status</span>
+<span class="kw">for</span> (<span class="kw">const</span> app <span class="kw">of</span> applications) statusCounts[app.status] += 1;</code></pre>
+  <div class="box why">
+    <span class="lbl">Why compute on the server, and why select only two columns</span>
+    <p>Computing on the server means the raw rows never leave it - the browser receives only the finished numbers, which is smaller and does not leak data. Selecting just <code class="k">status</code> and <code class="k">createdAt</code> (the only fields the metrics use) keeps the query lean; there is no reason to pull company names or notes to count statuses.</p>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"The dashboard aggregates in a single query and computes rates and a funnel in memory, all user-scoped." Aggregation and derived views are what separate a data-entry app from a product that gives insight - exactly the "computed views" an interviewer looks for.</p>
+  </div>
+</section>
+
+<section id="metrics">
+  <h2>38. The metrics, explained plainly <a href="#use" class="toplink">top</a></h2>
+
+  <h3>Response rate</h3>
+  <p>Of the jobs you actually applied to, how many did the employer respond to (in any way, including a rejection)?</p>
+  <ul>
+    <li><strong>Applied</strong> = every application except those still in Wishlist (Wishlist means you have not applied yet).</li>
+    <li><strong>Responded</strong> = anything that moved to OA, Interview, Offer, <em>or</em> Rejected. A rejection is still a response.</li>
+    <li><strong>Response rate</strong> = responded / applied, as a percentage.</li>
+  </ul>
+  <p>Interview rate and offer rate follow the same idea (reached interview-or-beyond / applied, and offers / applied).</p>
+
+  <h3>The pipeline funnel</h3>
+  <p>A funnel shows how many applications reached each successive stage: Applied, then OA, then Interview, then Offer. Each step is a subset of the one before, so the bars shrink - that shrinking is where you "leak" candidates.</p>
+  <div class="box gotcha">
+    <span class="lbl">An honest limitation</span>
+    <p>We only store each application's <em>current</em> status, not its full history of stage changes. So the funnel is computed from the current stage: an application at Offer is counted as having reached Applied, OA, Interview, and Offer. This is why the chart is labelled "based on current stage." A fully accurate funnel would require reading the event timeline (which does record transitions), and we could switch to that later. Being upfront about this tradeoff is exactly the kind of judgment worth showing.</p>
+  </div>
+
+  <h3>Applications over time</h3>
+  <p>We bucket applications by the week they were added, for the last 8 weeks, so you can see your activity trend. The bucketing is plain JavaScript: find the Monday of each week, then count applications whose <code class="k">createdAt</code> falls in that 7-day window.</p>
+<pre><code><span class="kw">function</span> <span class="fn">startOfWeek</span>(date) {
+  <span class="kw">const</span> d = <span class="kw">new</span> <span class="fn">Date</span>(date);
+  <span class="kw">const</span> mondayOffset = (d.<span class="fn">getDay</span>() + 6) % 7;  <span class="cm"># days since Monday</span>
+  d.<span class="fn">setDate</span>(d.<span class="fn">getDate</span>() - mondayOffset);   <span class="cm"># rewind to Monday</span>
+  d.<span class="fn">setHours</span>(0, 0, 0, 0);
+  <span class="kw">return</span> d;
+}</code></pre>
+</section>
+
+<section id="charts">
+  <h2>39. Server computes, client draws <a href="#use" class="toplink">top</a></h2>
+  <p>Charts are visual and interactive (hover tooltips, responsive resizing), so they must be <strong>client components</strong>. But the numbers come from the server. Same split as the kanban: the server does the data work, the client does the interaction.</p>
+  <div class="flow">
+<pre>
+  dashboard/page.tsx  (server)
+    getDashboardStats(user.id)  →  { total, responseRate, funnel, overTime, ... }
+        │  passes numbers as props
+        ▼
+  &lt;OverTimeChart data={overTime} /&gt;   &lt;FunnelChart data={funnel} /&gt;   (client, Recharts)
+</pre>
+  </div>
+
+  <h3>The charting library</h3>
+  <p>We use <strong>Recharts</strong>, a popular React charting library. You describe a chart as JSX components (<code class="k">BarChart</code>, <code class="k">Bar</code>, <code class="k">XAxis</code>, <code class="k">Tooltip</code>) and it draws SVG. Each chart file starts with <code class="k">"use client"</code> because Recharts measures the container in the browser to size itself.</p>
+  <p class="codecap">components/dashboard/over-time-chart.tsx (essence)</p>
+<pre><code>&lt;ResponsiveContainer width="100%" height={260}&gt;
+  &lt;BarChart data={data}&gt;
+    &lt;XAxis dataKey="label" /&gt;
+    &lt;YAxis allowDecimals={<span class="kw">false</span>} /&gt;   <span class="cm"># counts are whole numbers</span>
+    &lt;Tooltip /&gt;
+    &lt;Bar dataKey="count" /&gt;
+  &lt;/BarChart&gt;
+&lt;/ResponsiveContainer&gt;</code></pre>
+  <div class="box why">
+    <span class="lbl">Why Recharts over building charts by hand</span>
+    <p>Simple bars can be built with plain CSS, but axes, tooltips, responsiveness, and accessibility add up fast. Recharts handles them and is a recognized tool. The tradeoff is a dependency; we accept it because the polish and the resume signal are worth more here than shaving a package. If a chart were truly trivial we would still hand-roll it.</p>
+  </div>
+  <p>The stat cards (Total, Response rate, Interview rate, Offer rate) are plain server components - just numbers in boxes, no interactivity needed, so no reason to make them client components.</p>
+</section>
+
+<section id="selftest6">
+  <h2>40. Phase 6 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">Why compute the dashboard metrics on the server instead of the client?</summary>
+  The raw rows stay on the server (smaller payload, no data leak), the query is user-scoped, and the browser receives only the finished numbers. getDashboardStats does one findMany and reduces it in memory.</details>
+
+  <details><summary class="q">How is response rate defined here?</summary>
+  Responded (reached OA, Interview, Offer, or Rejected - a rejection counts as a response) divided by Applied (everything except Wishlist), as a percentage.</details>
+
+  <details><summary class="q">What is the honest limitation of our funnel and why does it exist?</summary>
+  We store only the current status, not stage history, so the funnel is computed from the current stage (an app at Offer is counted as having passed the earlier stages). A fully accurate funnel would read the event timeline. The chart is labelled "based on current stage" to be transparent.</details>
+
+  <details><summary class="q">Why are the chart components client components but the stat cards are not?</summary>
+  Charts need browser interactivity and container measurement (Recharts), so they are "use client". Stat cards are static numbers with no interactivity, so they stay server components.</details>
+
+  <details><summary class="q">How is "applications over time" bucketed?</summary>
+  By week: we find the Monday of each of the last 8 weeks and count applications whose createdAt falls in each 7-day window, all in plain JavaScript on the server.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of Phase 6. Phase 7 continues below.</p>
+</section>
+
+<section id="guest">
+  <h2>41. One-click guest login <a href="#use" class="toplink">top</a></h2>
+  <p>A recruiter will spend about thirty seconds on your project. If they have to sign up before seeing anything, most will leave. So the single highest-value feature is a button that drops them straight into a fully populated app. That is the guest login.</p>
+
+  <h3>The design: a fresh sandbox per click</h3>
+  <p>Every time someone clicks "Try the demo", we create a <strong>brand new guest user</strong> with its own copy of sample data. So two visitors never step on each other, and anyone can drag, edit, and delete freely without affecting the real thing.</p>
+  <div class="box why">
+    <span class="lbl">Why a fresh user instead of one shared demo account</span>
+    <p>A single shared account would let one visitor delete another's view mid-demo, and their edits would pile up. A fresh, isolated guest per click is predictable and safe. We mark these users with an <code class="k">isGuest</code> flag so they are easy to identify and clean up later.</p>
+  </div>
+
+  <h3>How it plugs into the existing auth</h3>
+  <p>We add a <strong>second Credentials provider</strong> to NextAuth, with the id <code class="k">"guest"</code>. Unlike the email/password one, it takes no input - its <code class="k">authorize</code> just creates the guest and returns it:</p>
+  <p class="codecap">auth.ts</p>
+<pre><code><span class="fn">Credentials</span>({
+  id: <span class="st">"guest"</span>,
+  credentials: {},
+  <span class="kw">async</span> <span class="fn">authorize</span>() {
+    <span class="kw">const</span> user = <span class="kw">await</span> <span class="fn">createGuestUser</span>();       <span class="cm"># make user + seed data</span>
+    <span class="kw">return</span> { id: user.id, email: user.email, name: user.name, isGuest: <span class="kw">true</span> };
+  },
+}),</code></pre>
+  <p>Because it is just another provider, everything downstream (JWT session, the <code class="k">proxy</code> guard, per-user scoping) works exactly the same. The guest is a real, logged-in user - it simply has no password and is flagged.</p>
+
+  <h3>Knowing a user is a guest</h3>
+  <p>We thread the <code class="k">isGuest</code> flag through the same JWT pipeline that carried the user id (section 13): <code class="k">authorize</code> returns it, the <code class="k">jwt</code> callback stores it on the token, the <code class="k">session</code> callback exposes it as <code class="k">session.user.isGuest</code>. The app layout reads that to show a small "you are exploring a demo" banner with a link to sign up.</p>
+</section>
+
+<section id="seeding">
+  <h2>42. Seeding demo data <a href="#use" class="toplink">top</a></h2>
+  <p><strong>Seeding</strong> means filling a fresh account with believable starter content so the app does not look empty. Empty dashboards and blank boards make a great product look broken; seeded data makes it look alive.</p>
+  <p><code class="k">createGuestUser()</code> creates the user, then loops over a hand-written list of about ten realistic applications (Stripe, Vercel, Notion, and so on) spread across all six statuses, each with a few timeline events. It uses Prisma's <strong>nested create</strong> to make an application and its events in one call:</p>
+  <p class="codecap">lib/guest.ts</p>
+<pre><code><span class="kw">await</span> prisma.application.<span class="fn">create</span>({
+  data: {
+    ...fields,
+    userId: user.id,
+    events: { create: events },   <span class="cm"># create the child events in the same call</span>
+  },
+});</code></pre>
+  <div class="box why">
+    <span class="lbl">Two thoughtful details</span>
+    <p><strong>Spread-out dates:</strong> each demo application's <code class="k">createdAt</code> is set to a different point over the past several weeks, so the "applications over time" chart actually shows a trend instead of one tall bar. <strong>No real password:</strong> the guest's <code class="k">passwordHash</code> is a sentinel string that can never match <code class="k">bcrypt.compare</code>, so nobody can log into a guest account by guessing - it is only reachable through the guest button.</p>
+  </div>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"The guest login provisions an isolated user and seeds it with date-spread demo data via a nested Prisma create, so the board and dashboard look real on first load." This shows product sense, not just coding - you thought about the person evaluating the app.</p>
+  </div>
+</section>
+
+<section id="publicroutes">
+  <h2>43. Public vs private routes, and polish <a href="#use" class="toplink">top</a></h2>
+  <p>Until now every page required login. Phase 7 adds a public <strong>landing page</strong> at <code class="k">/</code> with the pitch, the demo button, and sign in / sign up links. That means the auth guard needs an exception.</p>
+  <p>Recall the <code class="k">authorized</code> callback (section 13) that the proxy runs on every request. We add a small allow-list:</p>
+  <p class="codecap">auth.config.ts</p>
+<pre><code><span class="kw">const</span> PUBLIC_PAGES = [<span class="st">"/"</span>];
+<span class="cm">// ...inside authorized():</span>
+<span class="kw">if</span> (PUBLIC_PAGES.<span class="fn">includes</span>(nextUrl.pathname)) <span class="kw">return true</span>;  <span class="cm"># anyone may see the landing</span>
+<span class="kw">return</span> isLoggedIn;                                        <span class="cm"># everything else still gated</span></code></pre>
+  <p>So the routes now fall into three groups:</p>
+  <table>
+    <tr><th>Group</th><th>Pages</th><th>Rule</th></tr>
+    <tr><td>Public</td><td><code>/</code></td><td>Anyone</td></tr>
+    <tr><td>Auth</td><td><code>/login</code>, <code>/signup</code></td><td>Anyone, but logged-in users are bounced to /board</td></tr>
+    <tr><td>Private</td><td><code>/board</code>, <code>/applications*</code>, <code>/dashboard</code></td><td>Login required</td></tr>
+  </table>
+
+  <h3>The rest of the polish</h3>
+  <ul>
+    <li><strong>Loading state on the demo button:</strong> creating and seeding a guest takes a moment, so the button uses <code class="k">useFormStatus</code> to show "Loading demo..." while it works.</li>
+    <li><strong>Real page title:</strong> the root layout metadata now says "Huntboard - Track your job search" instead of the scaffold default, which is what shows in the browser tab and link previews.</li>
+    <li><strong>A proper README</strong> with the feature list, stack, architecture highlights, and local setup - the first thing a recruiter reads on GitHub.</li>
+  </ul>
+</section>
+
+<section id="selftest7">
+  <h2>44. Phase 7 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">Why create a fresh guest user per click instead of one shared demo account?</summary>
+  Isolation. A shared account would let visitors clobber each other's view and accumulate edits. A fresh, isGuest-flagged user per click is safe and predictable, and flagged users are easy to clean up.</details>
+
+  <details><summary class="q">How does guest login reuse the existing auth system?</summary>
+  It is a second Credentials provider with id "guest" whose authorize creates the guest and returns it. Everything downstream (JWT session, proxy guard, per-user scoping) works identically because the guest is a real logged-in user, just passwordless and flagged.</details>
+
+  <details><summary class="q">How does the app know to show the demo banner?</summary>
+  The isGuest flag is threaded through the JWT pipeline (authorize to jwt callback to session callback) and read as session.user.isGuest in the app layout.</details>
+
+  <details><summary class="q">Why spread the demo applications' createdAt dates over several weeks?</summary>
+  So the "applications over time" chart shows a real trend instead of a single bar, making the seeded dashboard look genuine.</details>
+
+  <details><summary class="q">How can a guest account not be logged into by guessing?</summary>
+  Its passwordHash is a sentinel string that never matches bcrypt.compare, and its email is a random address. The account is only reachable through the guest button, never the password form.</details>
+
+  <details><summary class="q">How did we make the landing page public without opening up the rest of the app?</summary>
+  We added a PUBLIC_PAGES allow-list ("/") in the authorized callback that returns true for those paths; every other non-auth route still returns isLoggedIn, so it stays gated.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">End of Phase 7. Phase 8 continues below.</p>
+</section>
+
+<section id="deploy">
+  <h2>45. Deploying to Vercel <a href="#use" class="toplink">top</a></h2>
+  <p>Deployment means taking the code that runs on your laptop and putting it on a server the whole world can reach. We use <strong>Vercel</strong>, the company that makes Next.js, so the integration is seamless: connect the GitHub repo, and every push to <code class="k">main</code> builds and goes live automatically.</p>
+  <p>The app is live at <a class="inline" href="https://huntboard.vercel.app">huntboard.vercel.app</a>.</p>
+
+  <h3>The pieces that had to line up</h3>
+  <table>
+    <tr><th>Concern</th><th>How we handled it</th></tr>
+    <tr><td>Monorepo</td><td>Huntboard lives in a subfolder (<code>BASIC_CRUD/Huntboard</code>) of a larger repo, so Vercel's <strong>Root Directory</strong> setting points there.</td></tr>
+    <tr><td>Build command</td><td>Vercel runs <code>pnpm build</code>, which is <code>prisma generate &amp;&amp; next build</code> - the client is regenerated on the server before compiling.</td></tr>
+    <tr><td>Secrets</td><td><code>DATABASE_URL</code> and <code>AUTH_SECRET</code> are set as Vercel environment variables, never committed. A fresh production <code>AUTH_SECRET</code> was generated (different from dev).</td></tr>
+    <tr><td>Production database</td><td>The production Neon branch was migrated with <code>prisma migrate deploy</code> before the first deploy, so the tables existed when the app went live.</td></tr>
+  </table>
+  <div class="box why">
+    <span class="lbl">Why migrate deploy, not migrate dev, in production</span>
+    <p><code class="k">migrate dev</code> can generate new migration files and needs a shadow database - fine for development, dangerous in production. <code class="k">migrate deploy</code> only <em>applies</em> the migration files that already exist, in order, and nothing else. It is the safe, idempotent command for production and CI.</p>
+  </div>
+  <div class="box gotcha">
+    <span class="lbl">Gotcha: env vars at build time</span>
+    <p>Our <code class="k">lib/prisma.ts</code> throws if <code class="k">DATABASE_URL</code> is missing, and that module can load during the build. So the variable must be set in Vercel for the build, not just at runtime. Setting it for the Production environment covers both.</p>
+  </div>
+</section>
+
+<section id="poolvsdirect">
+  <h2>46. Pooled vs direct connections in production <a href="#use" class="toplink">top</a></h2>
+  <p>This is the one genuinely new idea in deployment. Recall from section 7 that Neon offers two connection strings: <strong>direct</strong> and <strong>pooled</strong>. In production they play different roles.</p>
+  <div class="flow">
+<pre>
+  Vercel serverless functions            Neon
+  (many short-lived instances)
+        │  runtime queries
+        ▼
+  DATABASE_URL = POOLED  ────────────▶  PgBouncer pooler  ──▶  Postgres
+                                        (shares a small set of
+                                         real connections)
+
+  One-off migration (from your laptop)
+  DATABASE_URL = DIRECT  ─────────────────────────────────▶  Postgres
+</pre>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why the runtime needs the pooler</span>
+    <p>Serverless means each request can spin up a fresh function instance. If every instance opened its own direct database connection, a traffic spike would blow past Postgres's connection limit almost instantly. The pooler (PgBouncer) keeps a small set of real connections and lends them out, so thousands of function instances share a handful of connections. That is why Vercel's <code class="k">DATABASE_URL</code> is the <strong>pooled</strong> string.</p>
+  </div>
+  <div class="box why">
+    <span class="lbl">Why migrations still use direct</span>
+    <p>Migrations run schema-altering statements and rely on session features that a transaction pooler does not support. So the one-time <code class="k">migrate deploy</code> we ran used the <strong>direct</strong> string. Different job, different connection.</p>
+  </div>
+  <p>The application code did not change at all between dev and prod - only the value of the <code class="k">DATABASE_URL</code> environment variable. Dev points at the development Neon branch; production points at the pooled production branch. Same code, different config. That separation of code from configuration is a core deployment principle.</p>
+  <div class="box interview">
+    <span class="lbl">Interview</span>
+    <p>"In production the serverless runtime uses Neon's pooled connection so concurrent functions do not exhaust Postgres connections, while migrations use the direct connection. Code stays identical across environments; only the DATABASE_URL differs." That answer shows you understand serverless database access, which trips up a lot of people.</p>
+  </div>
+</section>
+
+<section id="selftest8">
+  <h2>47. Phase 8 self-test <a href="#use" class="toplink">top</a></h2>
+  <details><summary class="q">Why set Vercel's Root Directory to BASIC_CRUD/Huntboard?</summary>
+  The app is one project inside a larger monorepo. Root Directory tells Vercel which subfolder to build and deploy.</details>
+
+  <details><summary class="q">Why use migrate deploy in production instead of migrate dev?</summary>
+  migrate deploy only applies existing migration files in order, idempotently, with no shadow database and no new file generation. migrate dev is for authoring migrations locally and is unsafe in production.</details>
+
+  <details><summary class="q">Why does the serverless runtime use the pooled connection but migrations use the direct one?</summary>
+  Serverless spins up many function instances; without pooling they would each open a direct connection and exhaust Postgres's limit, so runtime uses PgBouncer (pooled). Migrations need session-level features a transaction pooler does not support, so they use the direct connection.</details>
+
+  <details><summary class="q">What is the only difference between the dev and production app?</summary>
+  Configuration, not code. The DATABASE_URL (and AUTH_SECRET) environment variables differ - dev points at the development Neon branch, production at the pooled production branch. The application code is identical.</details>
+
+  <details><summary class="q">Why must DATABASE_URL be available at build time on Vercel, not just runtime?</summary>
+  lib/prisma.ts throws if DATABASE_URL is missing and can be loaded during the build, so the variable has to be set for the build environment. Setting it for Production covers build and runtime.</details>
+
+  <hr class="soft">
+  <p style="color:var(--faint);font-size:13px;">All eight phases complete. Huntboard is built, documented, and live at huntboard.vercel.app.</p>
+</section>
+
+</main>
+</div>
+
+<script>
+  // active section highlight
+  const links = Array.from(document.querySelectorAll('#toc a'));
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target.id);
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: "-10% 0px -80% 0px", threshold: 0 });
+  document.querySelectorAll('section[id]').forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
